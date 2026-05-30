@@ -110,7 +110,7 @@ struct KeyboardPanelView: View {
         case .main:
             switch activeTab {
             case .transfer:
-                TransferView(flowState: $flowState, onInsertText: onInsertText)
+                TransferView(flowState: $flowState, llmName: llmName, onInsertText: onInsertText)
             case .prompts:
                 PromptsView(onInsert: onInsertText)
             }

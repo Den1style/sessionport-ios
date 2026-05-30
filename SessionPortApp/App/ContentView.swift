@@ -297,7 +297,8 @@ struct PromptDetailView: View {
                 Button {
                     UIPasteboard.general.string = resolved
                     showCopied = true
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                    Task {
+                        try? await Task.sleep(for: .seconds(1.5))
                         withAnimation { showCopied = false }
                     }
                 } label: {
@@ -351,6 +352,7 @@ struct SettingsTab: View {
     @EnvironmentObject var drive: GoogleDriveService
     @EnvironmentObject var store: StoreKitService
     @State private var showPaywall = false
+    @State private var connectError: String? = nil
 
     var body: some View {
         NavigationStack {
@@ -395,7 +397,12 @@ struct SettingsTab: View {
                             Label("Disconnect", systemImage: "xmark.icloud")
                         }
                     } else {
-                        Button { Task { try? await drive.connect() } } label: {
+                        Button {
+                            Task {
+                                do { try await drive.connect() }
+                                catch { connectError = error.localizedDescription }
+                            }
+                        } label: {
                             Label("Connect Google Drive", systemImage: "icloud.and.arrow.up")
                         }
                         Text("Reads your SessionPort backups. Scope: drive.file only.")
@@ -422,6 +429,14 @@ struct SettingsTab: View {
         }
         .sheet(isPresented: $showPaywall) {
             PaywallView(reason: "Unlock unlimited snapshots and sync")
+        }
+        .alert("Google Drive Error", isPresented: Binding(
+            get: { connectError != nil },
+            set: { if !$0 { connectError = nil } }
+        )) {
+            Button("OK") { connectError = nil }
+        } message: {
+            Text(connectError ?? "")
         }
     }
 }

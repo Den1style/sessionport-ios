@@ -2,6 +2,7 @@ import SwiftUI
 
 struct TransferView: View {
     @Binding var flowState: TransferFlowState
+    let llmName: String
     let onInsertText: (String) -> Void
 
     var body: some View {
@@ -117,7 +118,8 @@ struct TransferView: View {
             parentId: SharedStorage.shared.snapshots.first?.id,
             title: "Context \(Date().formatted(date: .abbreviated, time: .shortened))",
             goal: "", decisions: [], rejected: [],
-            state: "ACTIVE", nextStep: "", llmSource: "",
+            state: "ACTIVE", nextStep: "",
+            llmSource: llmName.isEmpty ? "unknown" : llmName.lowercased(),
             createdAt: Date()
         )
     }

@@ -162,7 +162,10 @@ struct DashboardCard: View {
                 Button {
                     UIPasteboard.general.string = snapshot.contextText()
                     showCopied = true
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) { showCopied = false }
+                    Task {
+                        try? await Task.sleep(for: .seconds(1.5))
+                        showCopied = false
+                    }
                 } label: {
                     Text(showCopied ? "✓" : "Load ↑")
                         .font(.system(size: 10, weight: .semibold))

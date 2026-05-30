@@ -7,10 +7,16 @@ struct HistoryView: View {
     @State private var selected: Snapshot? = nil
 
     var body: some View {
-        if let snap = selected {
-            detail(snap)
-        } else {
-            list
+        Group {
+            if let snap = selected {
+                detail(snap)
+            } else {
+                list
+            }
+        }
+        .onAppear {
+            // Reload so keyboard sees snapshots saved since it was opened
+            snapshots = SharedStorage.shared.snapshots
         }
     }
 
