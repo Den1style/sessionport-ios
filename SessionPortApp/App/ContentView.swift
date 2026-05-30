@@ -53,6 +53,9 @@ struct SnapshotsTab: View {
     @State private var search = ""
     @State private var showPaywall = false
 
+    // Computed from @State snapshots — no extra UserDefaults decode
+    private var freeSnapshotsRemaining: Int { max(0, 5 - snapshots.count) }
+
     private var filtered: [Snapshot] {
         search.isEmpty ? snapshots
             : snapshots.filter {
@@ -70,7 +73,7 @@ struct SnapshotsTab: View {
                         .listRowInsets(.init())
                 }
                 if !store.isPro {
-                    FreemiumBanner(remaining: SharedStorage.shared.freeSnapshotsRemaining) {
+                    FreemiumBanner(remaining: freeSnapshotsRemaining) {
                         showPaywall = true
                     }
                     .listRowBackground(Color.clear)

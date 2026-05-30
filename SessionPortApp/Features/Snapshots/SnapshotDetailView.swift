@@ -51,8 +51,8 @@ struct SnapshotDetailView: View {
                         }
                         Spacer()
                         Button(role: .destructive) {
-                            SharedStorage.shared.removeFile(fileId: file.id, fromSnapshot: snapshot.id)
-                            snapshot = SharedStorage.shared.snapshots.first { $0.id == snapshot.id } ?? snapshot
+                            snapshot.attachedFiles.removeAll { $0.id == file.id }
+                            SharedStorage.shared.updateSnapshot(snapshot)
                         } label: {
                             Image(systemName: "trash").font(.caption)
                         }
@@ -143,9 +143,9 @@ struct SnapshotDetailView: View {
                     sizeBytes: data.count,
                     base64: data.base64EncodedString()
                 )
-                SharedStorage.shared.attachFile(file, toSnapshot: snapshot.id)
+                snapshot.attachedFiles.append(file)
             }
-            snapshot = SharedStorage.shared.snapshots.first { $0.id == snapshot.id } ?? snapshot
+            SharedStorage.shared.updateSnapshot(snapshot)
         }
     }
 }

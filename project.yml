@@ -60,7 +60,7 @@ targets:
       properties:
         com.apple.security.application-groups:
           - group.com.sessionport.app
-        RequestsOpenAccess: true
+        # Note: RequestsOpenAccess belongs in Info.plist (NSExtensionAttributes), not entitlements
 
   # ─── Unit Tests ───────────────────────────────────────────────────
   SessionPortTests:

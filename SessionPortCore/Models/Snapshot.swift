@@ -1,10 +1,8 @@
 import Foundation
 
-private let kMaxShortStr  = 500
-private let kMaxLongStr   = 5_000
-private let kMaxArrayLen  = 100
-private let kMaxFileSize  = 5 * 1024 * 1024  // 5 MB per file
-private let kMaxFiles     = 20
+private let kMaxShortStr = 500
+private let kMaxLongStr  = 5_000
+private let kMaxArrayLen = 100
 
 // File attached to a snapshot — stored as base64 in App Group UserDefaults
 struct AttachedFile: Codable, Identifiable, Hashable {

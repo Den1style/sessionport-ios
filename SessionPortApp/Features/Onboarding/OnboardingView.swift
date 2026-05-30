@@ -69,7 +69,7 @@ struct OnboardingView: View {
                         }
                     }
                     .font(.subheadline)
-                    .foregroundColor(.accentColor)
+                    .foregroundStyle(.accentColor)
                 }
 
                 Button(current.action) {

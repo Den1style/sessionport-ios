@@ -117,8 +117,6 @@ final class StoreKitService: ObservableObject {
 
 // MARK: - Paywall View
 
-import SwiftUI
-
 struct PaywallView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var store = StoreKitService.shared
@@ -137,7 +135,7 @@ struct PaywallView: View {
                         .font(.title.bold())
                     Text(reason)
                         .font(.subheadline)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal)
                 }
@@ -168,7 +166,7 @@ struct PaywallView: View {
                             .frame(maxWidth: .infinity)
                             .frame(height: 50)
                             .background(Color.accentColor)
-                            .foregroundColor(.white)
+                            .foregroundStyle(.white)
                             .clipShape(RoundedRectangle(cornerRadius: 14))
                         }
                         .disabled(store.isLoading)
@@ -178,11 +176,11 @@ struct PaywallView: View {
                         Task { await store.restorePurchases() }
                     }
                     .font(.subheadline)
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
 
                     Text("Cancel anytime. Subscription auto-renews monthly.")
                         .font(.caption)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                 }
                 .padding(.horizontal, 24)
@@ -218,14 +216,14 @@ struct FeatureRow: View {
         HStack(spacing: 14) {
             Image(systemName: icon)
                 .font(.system(size: 20))
-                .foregroundColor(.accentColor)
+                .foregroundStyle(.accentColor)
                 .frame(width: 30)
             VStack(alignment: .leading, spacing: 2) {
                 Text(title)
                     .font(.system(size: 15, weight: .medium))
                 Text(subtitle)
                     .font(.system(size: 13))
-                    .foregroundColor(.secondary)
+                    .foregroundStyle(.secondary)
             }
         }
     }
