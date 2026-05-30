@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 import UniformTypeIdentifiers
 
 // MARK: - Root
@@ -240,6 +241,10 @@ struct ExportView: View {
         .environment(\.editMode, .constant(.active))
     }
 
+    private func topMostViewController(_ vc: UIViewController) -> UIViewController {
+        vc.presentedViewController.map { topMostViewController($0) } ?? vc
+    }
+
     private func exportSelected() {
         let toExport = selected.isEmpty ? snapshots : snapshots.filter { selected.contains($0.id) }
         let payload: [String: Any] = [
@@ -256,12 +261,14 @@ struct ExportView: View {
             .appendingPathComponent("sessionport-export-\(Int(Date().timeIntervalSince1970)).json")
         try? json.write(to: url, atomically: true, encoding: .utf8)
         let av = UIActivityViewController(activityItems: [url], applicationActivities: nil)
-        UIApplication.shared.connectedScenes
-            .compactMap { $0 as? UIWindowScene }
-            .flatMap { $0.windows }
-            .first { $0.isKeyWindow }?
-            .rootViewController?
-            .present(av, animated: true)
+        // Use topMostViewController so sheet/modal stacks are handled correctly
+        if let root = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .flatMap({ $0.windows })
+            .first(where: { $0.isKeyWindow })?
+            .rootViewController {
+            topMostViewController(root).present(av, animated: true)
+        }
         dismiss()
     }
 }

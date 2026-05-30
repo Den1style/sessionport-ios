@@ -10,27 +10,27 @@ struct SnapshotDetailView: View {
     var body: some View {
         List {
             if !snapshot.goal.isEmpty {
-                Section("Goal") { Text(snapshot.goal) }
+                Section("Цель") { Text(snapshot.goal) }
             }
             if !snapshot.decisions.isEmpty {
-                Section("Decisions") {
+                Section("Решения") {
                     ForEach(snapshot.decisions, id: \.self) { d in
                         Label(d, systemImage: "checkmark.circle.fill").foregroundStyle(.green, .primary)
                     }
                 }
             }
             if !snapshot.rejected.isEmpty {
-                Section("Rejected") {
+                Section("Отклонено") {
                     ForEach(snapshot.rejected, id: \.self) { r in
                         Label(r, systemImage: "xmark.circle.fill").foregroundStyle(.red, .primary)
                     }
                 }
             }
             if !snapshot.state.isEmpty {
-                Section("State") { Text(snapshot.state) }
+                Section("Состояние") { Text(snapshot.state) }
             }
             if !snapshot.nextStep.isEmpty {
-                Section("Next Step") {
+                Section("Следующий шаг") {
                     Label(snapshot.nextStep, systemImage: "arrow.right.circle.fill")
                         .foregroundStyle(.accentColor, .primary)
                 }
@@ -64,12 +64,12 @@ struct SnapshotDetailView: View {
                 Button {
                     showFilePicker = true
                 } label: {
-                    Label("Attach file", systemImage: "paperclip")
+                    Label("Прикрепить файл", systemImage: "paperclip")
                         .foregroundStyle(.accentColor)
                 }
             } header: {
                 HStack {
-                    Text("Files")
+                    Text("Файлы")
                     if !snapshot.attachedFiles.isEmpty {
                         Text("(\(snapshot.attachedFiles.count))")
                             .foregroundStyle(.secondary)
@@ -82,13 +82,13 @@ struct SnapshotDetailView: View {
                     UIPasteboard.general.string = snapshot.contextText()
                     showCopied = true
                 } label: {
-                    Label("Copy context + files", systemImage: "doc.on.clipboard")
+                    Label("Копировать контекст + файлы", systemImage: "doc.on.clipboard")
                 }
                 Button {
                     UIPasteboard.general.string = snapshot.contextText(includeFiles: false)
                     showCopied = true
                 } label: {
-                    Label("Copy context only", systemImage: "doc.on.doc")
+                    Label("Только контекст", systemImage: "doc.on.doc")
                 }
                 .foregroundStyle(.secondary)
             }

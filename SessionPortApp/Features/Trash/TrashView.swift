@@ -34,7 +34,7 @@ struct TrashView: View {
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 if !trashed.isEmpty {
-                    ToolbarItem(placement: .destructiveAction) {
+                    ToolbarItem(placement: .topBarTrailing) {
                         Button("Очистить", role: .destructive) {
                             showEmptyConfirm = true
                         }

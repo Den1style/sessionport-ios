@@ -224,7 +224,12 @@ struct MapCanvasRepresentable: UIViewRepresentable {
     func makeUIView(context: Context) -> MapCanvasView {
         let v = MapCanvasView()
         v.onNodeTap = { [coordinator = context.coordinator] id in
-            coordinator.binding.wrappedValue = coordinator.binding.wrappedValue == id ? nil : id
+            // Empty string = tap on canvas background → deselect
+            if id.isEmpty {
+                coordinator.binding.wrappedValue = nil
+            } else {
+                coordinator.binding.wrappedValue = coordinator.binding.wrappedValue == id ? nil : id
+            }
         }
         return v
     }
