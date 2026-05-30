@@ -48,16 +48,127 @@ struct PromptItem: Codable, Identifiable, Hashable {
     }
 }
 
+// MARK: - Demo prompts (mirrored from browser extension demo-prompts.json)
+
 extension PromptItem {
     static let demos: [PromptItem] = [
-        PromptItem(title: "Deep dive",
-                   body: "Let's go deeper. Explore edge cases, failure modes, and alternative approaches I haven't considered yet.",
-                   isFavorite: true),
-        PromptItem(title: "Summarize context",
-                   body: "Summarize the key decisions and next steps from this conversation context."),
-        PromptItem(title: "Continue task",
-                   body: "Continue from where we left off. The goal is: {{goal}}. Next step: {{next_step}}"),
-        PromptItem(title: "Debug assistant",
-                   body: "You are a debugging expert. Analyze this {{language}} code and find all bugs:\n\n{{code}}"),
+        PromptItem(
+            id: "demo_001",
+            title: "Перенос контекста (SessionPort)",
+            body: """
+            Создай JSON-снапшот нашей сессии для переноса через SessionPort.
+
+            Включи:
+            - Задача и цель
+            - Принятые решения и их обоснование
+            - Текущий прогресс
+            - Открытые вопросы
+            - Следующий шаг
+
+            Формат: валидный JSON, схема SessionPort v1.1.
+            """,
+            isFavorite: true
+        ),
+        PromptItem(
+            id: "demo_002",
+            title: "Code Review",
+            body: """
+            Проведи детальный code review.
+
+            Проверь:
+            1. Критические ошибки и баги
+            2. Безопасность (инъекции, утечки данных)
+            3. Производительность
+            4. Читаемость и соответствие best practices
+            5. Покрытие edge cases
+
+            Для каждой проблемы: severity (critical/major/minor), объяснение, готовое исправление.
+            """,
+            isFavorite: true
+        ),
+        PromptItem(
+            id: "demo_003",
+            title: "Отладка ошибки",
+            body: """
+            Найди и исправь ошибку:
+
+            {{ошибка или стектрейс}}
+
+            Объясни:
+            - Почему она возникает
+            - Как исправить (с кодом)
+            - Как избежать в будущем
+
+            Контекст: {{язык / фреймворк}}
+            """
+        ),
+        PromptItem(
+            id: "demo_004",
+            title: "Анализ данных",
+            body: """
+            Проанализируй данные и предоставь структурированный отчёт:
+
+            1. Ключевые метрики и показатели
+            2. Тренды и паттерны
+            3. Аномалии и выбросы
+            4. Сравнение с базовыми значениями
+            5. Выводы и рекомендации
+
+            Оформи таблицами там, где уместно.
+            """
+        ),
+        PromptItem(
+            id: "demo_005",
+            title: "Копирайтинг",
+            body: """
+            Напиши {{тип текста: пост/статья/письмо}} для {{продукт или тема}}.
+
+            Аудитория: {{целевая аудитория}}
+            Тон: {{тон: экспертный/дружелюбный/продающий}}
+            Длина: {{длина}}
+
+            Основные тезисы:
+            {{тезисы}}
+
+            CTA (призыв к действию): {{действие}}
+            """
+        ),
+        PromptItem(
+            id: "demo_006",
+            title: "Резюме встречи",
+            body: """
+            Оформи резюме встречи в структурированном виде:
+
+            **Участники:** {{список}}
+            **Дата:** {{дата}}
+
+            **Обсуждаемые темы:**
+            {{темы}}
+
+            **Принятые решения:**
+            — ...
+
+            **Задачи и ответственные:**
+            | Задача | Ответственный | Дедлайн |
+
+            **Следующая встреча:** {{дата и формат}}
+            """
+        ),
+        PromptItem(
+            id: "demo_007",
+            title: "Рефакторинг кода",
+            body: """
+            Выполни рефакторинг кода ниже без изменения поведения:
+
+            Цели:
+            - Улучшить читаемость
+            - Устранить дублирование (DRY)
+            - Применить паттерны там, где уместно
+            - Оптимизировать производительность
+
+            После рефакторинга объясни каждое изменение.
+            """,
+            isFavorite: true
+        ),
     ]
 }

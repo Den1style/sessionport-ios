@@ -20,8 +20,8 @@ enum TransferMode: String, Codable, CaseIterable {
 
     var stepCount: Int {
         switch self {
-        case .simple:   return 2
-        case .extended: return 3
+        case .simple:   return 3
+        case .extended: return 4
         }
     }
 
@@ -29,14 +29,16 @@ enum TransferMode: String, Codable, CaseIterable {
         switch self {
         case .simple:
             return [
-                TransferStep(index: 0, title: "Save & Send", subtitle: "Captures context and copies to clipboard"),
-                TransferStep(index: 1, title: "Load ↑", subtitle: "Inserts context into current LLM"),
+                TransferStep(index: 0, title: "Анализ", subtitle: "Вставит промпт анализа в LLM"),
+                TransferStep(index: 1, title: "Слепок", subtitle: "Вставит промпт генерации JSON"),
+                TransferStep(index: 2, title: "Load ↑", subtitle: "Вставит контекст в новый LLM"),
             ]
         case .extended:
             return [
-                TransferStep(index: 0, title: "Save", subtitle: "Save current conversation state"),
-                TransferStep(index: 1, title: "Capture", subtitle: "Validate anchors and clarify"),
-                TransferStep(index: 2, title: "Load ↑", subtitle: "Inserts context into current LLM"),
+                TransferStep(index: 0, title: "Подготовка", subtitle: "Подготовительный промпт"),
+                TransferStep(index: 1, title: "Якоря", subtitle: "Проверка 6 якорей"),
+                TransferStep(index: 2, title: "Слепок", subtitle: "Генерация JSON"),
+                TransferStep(index: 3, title: "Load ↑", subtitle: "Вставит контекст в новый LLM"),
             ]
         }
     }

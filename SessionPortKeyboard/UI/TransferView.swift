@@ -22,7 +22,7 @@ struct TransferView: View {
         HStack(spacing: 10) {
             ModeCard(
                 icon: "⚡", title: "Simple",
-                subtitle: "2 шага · быстро",
+                subtitle: "3 шага · быстро",
                 bg: Color(red: 0.22, green: 0.14, blue: 0.02),
                 accent: Color(red: 1.0, green: 0.75, blue: 0.1)
             ) {
@@ -32,7 +32,7 @@ struct TransferView: View {
             }
             ModeCard(
                 icon: "🔬", title: "Extended",
-                subtitle: "3 шага · полный контроль",
+                subtitle: "4 шага · полный контроль",
                 bg: Color(red: 0.12, green: 0.1, blue: 0.28),
                 accent: Color(red: 0.6, green: 0.5, blue: 1.0)
             ) {
@@ -58,7 +58,11 @@ struct TransferView: View {
             }
             .buttonStyle(.plain)
 
-            HStack(spacing: 6) {
+            let cols = mode.steps.count <= 3
+                ? Array(repeating: GridItem(.flexible(), spacing: 5), count: mode.steps.count)
+                : [GridItem(.flexible(), spacing: 5), GridItem(.flexible(), spacing: 5)]
+
+            LazyVGrid(columns: cols, spacing: 5) {
                 ForEach(Array(mode.steps.enumerated()), id: \.offset) { i, s in
                     StepButton(
                         title: s.title,
@@ -78,25 +82,54 @@ struct TransferView: View {
 
         switch mode {
         case .simple:
-            if index == 0 {
+            switch index {
+            case 0:
+                // Step 1: insert SIMPLE_ANALYZE prompt → user sends to LLM
+                onInsertText(analyzePrompt)
+                advance(mode: mode, from: index)
+            case 1:
+                // Step 2: insert SIMPLE_CONFIRM prompt → user sends, copies JSON from LLM response
+                onInsertText(confirmPrompt)
+                advance(mode: mode, from: index)
+            default:
+                // Step 3: load last saved snapshot into new LLM
                 guard storage.canAddSnapshot else { return }
                 let snap = makeSnapshot()
                 storage.addSnapshot(snap)
-                UIPasteboard.general.string = snap.contextText()
-                advance(mode: mode, from: index)
-            } else {
                 if let latest = storage.snapshots.first { onInsertText(latest.contextText()) }
                 flowState = .modeSelection
             }
+
         case .extended:
-            if index == 0 {
+            switch index {
+            case 0:
+                // Step 1: preparation prompt (same as analyze)
+                onInsertText(analyzePrompt)
+                advance(mode: mode, from: index)
+            case 1:
+                // Step 2: anchor validation — copy analyze prompt again for deeper pass
+                onInsertText("""
+                Проверь 6 якорей переноса SessionPort:
+                1. ЦЕЛЬ — сформулирована как инструкция-продолжение?
+                2. РЕШЕНИЯ — все [ОТКЛОНЕНО] задокументированы с причиной?
+                3. СОСТОЯНИЕ — текущая задача и следующий шаг ясны?
+                4. НЕЯВНЫЕ ЗАПРЕТЫ — что я перестал предлагать и почему?
+                5. ИНСТРУКЦИИ — 3–5 конкретных правил для новой модели?
+                6. ДНА — стек, ограничения, стиль общения зафиксированы?
+
+                Для каждого якоря: ✅ готово / ⚠️ нужно уточнить / ❌ отсутствует.
+                Дополни пропущенное перед генерацией слепка.
+                """)
+                advance(mode: mode, from: index)
+            case 2:
+                // Step 3: generate JSON snapshot
+                onInsertText(confirmPrompt)
+                advance(mode: mode, from: index)
+            default:
+                // Step 4: load into new LLM
                 guard storage.canAddSnapshot else { return }
-                storage.addSnapshot(makeSnapshot())
-                advance(mode: mode, from: index)
-            } else if index == 1 {
-                UIPasteboard.general.string = capturePrompt
-                advance(mode: mode, from: index)
-            } else {
+                let snap = makeSnapshot()
+                storage.addSnapshot(snap)
                 if let latest = storage.snapshots.first { onInsertText(latest.contextText()) }
                 flowState = .modeSelection
             }
@@ -124,10 +157,61 @@ struct TransferView: View {
         )
     }
 
-    private let capturePrompt = """
-        Capture current conversation as SessionPort snapshot. \
-        JSON fields: transfer_id, title, goal, decisions[], rejected[], state, next_step.
+    // SIMPLE_ANALYZE — ported from browser extension popup-shell.js
+    // Inserted into LLM at step 1 (Simple) and step 2 (Extended)
+    private var analyzePrompt: String {
+        let id = UUID().uuidString.lowercased()
+        return """
+        ПРОТОКОЛ SessionPort — ПРОСТОЙ ПЕРЕНОС.
+
+        Сначала ответь на один вопрос: что из нашей текущей переписки будет ПОТЕРЯНО при переносе? Для каждого пункта: критично / допустимо / неважно. В слепок войдёт только критичное.
+
+        Затем выведи строго по секциям:
+
+        ## DNA ПРОЕКТА
+        - Домен, стек, цель — одно предложение-инструкция (глагол + задача + приоритет)
+        - Язык и стиль общения пользователя (лаконичный/многословный, рус/англ)
+        - Глобальные ограничения (технологии, запреты, дедлайны)
+
+        ## РЕШЕНИЯ
+        Каждый пункт отдельной строкой. Причина и контекст обязательны:
+        [ПРИНЯТО] что именно — потому что причина — при каких обстоятельствах
+        [ОТКЛОНЕНО] что именно — потому что причина — почему никогда не предлагать снова
+        [ПРАВИЛО] что именно — потому что причина
+        Минимум 3, лучше 5–10. Включи ВСЕ реальные [ОТКЛОНЕНО] — всё что пробовали и явно отвергли. НЕ придумывай отклонения. Если их не было — пропусти [ОТКЛОНЕНО] полностью.
+
+        ## СОСТОЯНИЕ
+        Последние 3–5 действий · что работает / что сломано / что в процессе · следующий шаг.
+
+        ## НЕЯВНЫЕ ЗАПРЕТЫ
+        Что ты перестал предлагать в этой сессии потому что пользователь молча не принимал? (implicit negative feedback — самое ценное что теряется при переносе)
+
+        ## ИНСТРУКЦИИ ДЛЯ НОВОЙ МОДЕЛИ
+        3–5 правил: «Если [X] → [Y]» или «Всегда/Никогда [Z] — потому что [причина]».
         """
+    }
+
+    // SIMPLE_CONFIRM — ported from browser extension popup-shell.js
+    // Inserted at step 2 (Simple) to generate the actual JSON snapshot
+    private var confirmPrompt: String {
+        let id = UUID().uuidString.lowercased()
+        return """
+        ПРОТОКОЛ SessionPort — ГЕНЕРАЦИЯ СЛЕПКА.
+
+        Проанализируй нашу переписку в этом чате и сформируй JSON-слепок. Подставь реальные данные из нашего диалога вместо «…». transfer_id ниже — уникальная метка, просто скопируй в meta.transfer_id как есть:
+
+        ```json
+        {"meta":{"protocol":"SessionPort","transfer_id":"\(id)","project":"…","version":"1.1","date":"YYYY-MM-DD"},"dna":{"goal":"инструкция-продолжение (глагол+задача+приоритет)","language":"ru","style":"…","constraints":["…"]},"decisions":[{"what":"…","why":"причина","context":"при каких обстоятельствах","type":"accepted"},{"what":"…","why":"причина","context":"что пробовали и явно отвергли","type":"rejected"},{"what":"…","why":"причина","context":"","type":"rule"}],"state":{"current_task":"…","last_actions":["…","…","…"],"next_step":"…"},"instructions":["Если X → Y","Всегда Z при W","Никогда Q — потому что R"]}
+        ```
+
+        или ---BEGIN CONTEXT---{…}---END CONTEXT---
+
+        КРИТИЧНО: Все данные — из нашей переписки выше.
+        decisions — минимум 3, включая type:"rejected". Каждое с непустым "why".
+        meta.transfer_id = "\(id)" — символ-в-символ.
+        Первый символ {. Последний }. Только JSON, без пояснений.
+        """
+    }
 }
 
 // MARK: - ModeCard
