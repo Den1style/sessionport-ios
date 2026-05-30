@@ -43,9 +43,40 @@ final class SharedStorage {
         snapshots = list
     }
 
-    func deleteSnapshot(id: String) {
+    // Move to Trash (soft delete) — matches extension behaviour
+    func moveToTrash(id: String) {
+        var list = snapshots
+        guard let idx = list.firstIndex(where: { $0.id == id }) else { return }
+        list[idx].deletedAt = Date()
+        snapshots = list
+    }
+
+    func restoreFromTrash(id: String) {
+        var list = snapshots
+        guard let idx = list.firstIndex(where: { $0.id == id }) else { return }
+        list[idx].deletedAt = nil
+        snapshots = list
+    }
+
+    func permanentlyDelete(id: String) {
         snapshots = snapshots.filter { $0.id != id }
     }
+
+    func emptyTrash() {
+        snapshots = snapshots.filter { !$0.isTrashed }
+    }
+
+    // Active (not trashed) snapshots — use everywhere except Trash screen
+    var activeSnapshots: [Snapshot] { snapshots.filter { !$0.isTrashed } }
+    var trashedSnapshots: [Snapshot] { snapshots.filter { $0.isTrashed } }
+
+    // Projects — derived from active snapshots
+    var allProjects: [String] {
+        Array(Set(activeSnapshots.compactMap { $0.project })).sorted()
+    }
+
+    // Kept for compatibility — returns active only
+    func deleteSnapshot(id: String) { moveToTrash(id: id) }
 
     // Attach file to existing snapshot
     func attachFile(_ file: AttachedFile, toSnapshot id: String) {
@@ -104,8 +135,8 @@ final class SharedStorage {
         set { defaults.set(newValue, forKey: "sp_is_pro") }
     }
 
-    var canAddSnapshot: Bool { isPro || snapshots.count < kFreeLimit }
-    var freeSnapshotsRemaining: Int { max(0, kFreeLimit - snapshots.count) }
+    var canAddSnapshot: Bool { isPro || activeSnapshots.count < kFreeLimit }
+    var freeSnapshotsRemaining: Int { max(0, kFreeLimit - activeSnapshots.count) }
 
     // MARK: - Drive state (email only, tokens in Keychain)
 

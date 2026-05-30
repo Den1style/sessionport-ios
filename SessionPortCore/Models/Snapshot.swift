@@ -35,8 +35,12 @@ struct Snapshot: Codable, Identifiable, Hashable {
     var state: String
     var nextStep: String
     var llmSource: String
+    var project: String?       // project name, mirrors extension
     var createdAt: Date
+    var deletedAt: Date?       // non-nil → in Trash
     var attachedFiles: [AttachedFile]
+
+    var isTrashed: Bool { deletedAt != nil }
 
     init(
         id: String = UUID().uuidString,
@@ -48,20 +52,24 @@ struct Snapshot: Codable, Identifiable, Hashable {
         state: String = "",
         nextStep: String = "",
         llmSource: String = "",
+        project: String? = nil,
         createdAt: Date = Date(),
+        deletedAt: Date? = nil,
         attachedFiles: [AttachedFile] = []
     ) {
         self.id = id; self.parentId = parentId; self.title = title
         self.goal = goal; self.decisions = decisions; self.rejected = rejected
         self.state = state; self.nextStep = nextStep; self.llmSource = llmSource
-        self.createdAt = createdAt; self.attachedFiles = attachedFiles
+        self.project = project; self.createdAt = createdAt
+        self.deletedAt = deletedAt; self.attachedFiles = attachedFiles
     }
 
     enum CodingKeys: String, CodingKey {
         case id = "transfer_id"; case parentId = "parent_transfer_id"
-        case title, goal, decisions, rejected, state
+        case title, goal, decisions, rejected, state, project
         case nextStep = "next_step"; case llmSource = "llm_source"
-        case createdAt = "created_at"; case attachedFiles = "attached_files"
+        case createdAt = "created_at"; case deletedAt = "deleted_at"
+        case attachedFiles = "attached_files"
     }
 
     // Full context text including file contents

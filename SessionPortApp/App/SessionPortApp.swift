@@ -10,6 +10,7 @@ struct SessionPortApp: App {
             ContentView()
                 .environmentObject(drive)
                 .environmentObject(store)
+                .preferredColorScheme(.light)
         }
     }
 }

@@ -1,88 +1,86 @@
 import SwiftUI
 import UIKit
 
-enum MindMapTab { case map, dashboard }
+// MARK: - Container (no Dashboard — just the interactive graph)
 
 struct MindMapContainerView: View {
-    @State private var activeTab: MindMapTab = .map
-    @State private var snapshots = SharedStorage.shared.snapshots
-    @State private var filter: String? = nil  // nil = All
+    @State private var snapshots = SharedStorage.shared.activeSnapshots
+    @State private var selectedProject: String? = nil
+    @State private var selectedId: String? = nil
+
+    private var projects: [String] { SharedStorage.shared.allProjects }
+
+    private var displayed: [Snapshot] {
+        guard let proj = selectedProject else { return snapshots }
+        return snapshots.filter { $0.project == proj }
+    }
 
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                // Tab switcher: Map / Dashboard
-                Picker("", selection: $activeTab) {
-                    Text("Mind Map").tag(MindMapTab.map)
-                    Text("Dashboard").tag(MindMapTab.dashboard)
+                // Project filter chips
+                if !projects.isEmpty {
+                    ScrollView(.horizontal, showsIndicators: false) {
+                        HStack(spacing: 6) {
+                            ProjectChip(label: "Все", isActive: selectedProject == nil) {
+                                selectedProject = nil
+                            }
+                            ForEach(projects, id: \.self) { proj in
+                                ProjectChip(label: proj, isActive: selectedProject == proj) {
+                                    selectedProject = selectedProject == proj ? nil : proj
+                                }
+                            }
+                        }
+                        .padding(.horizontal, 16)
+                        .padding(.vertical, 8)
+                    }
+                    Divider()
                 }
-                .pickerStyle(.segmented)
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
 
-                if activeTab == .map {
-                    MindMapGraphView(snapshots: snapshots)
-                } else {
-                    DashboardView(snapshots: snapshots, filter: $filter)
+                // Map toolbar
+                MapToolbarView()
+
+                // Interactive canvas
+                ZStack {
+                    Color(UIColor.systemGroupedBackground)
+                        .ignoresSafeArea()
+
+                    if displayed.isEmpty {
+                        ContentUnavailableView(
+                            "Нет снэпшотов",
+                            systemImage: "point.3.connected.trianglepath.dotted",
+                            description: Text("Используй клавиатуру SessionPort для захвата контекста")
+                        )
+                    } else {
+                        MapCanvasRepresentable(
+                            snapshots: displayed,
+                            selectedId: $selectedId
+                        )
+                        .ignoresSafeArea(edges: .bottom)
+
+                        // Selected snapshot info panel (bottom overlay)
+                        if let id = selectedId,
+                           let snap = displayed.first(where: { $0.id == id }) {
+                            MapInfoPanel(snapshot: snap, onDismiss: { selectedId = nil })
+                                .padding(.horizontal, 12)
+                                .padding(.bottom, 16)
+                                .frame(maxHeight: .infinity, alignment: .bottom)
+                                .transition(.move(edge: .bottom).combined(with: .opacity))
+                        }
+                    }
                 }
+                .animation(.spring(response: 0.3), value: selectedId)
             }
             .navigationTitle("Mind Map")
             .navigationBarTitleDisplayMode(.inline)
-            .onAppear { snapshots = SharedStorage.shared.snapshots }
+            .onAppear { snapshots = SharedStorage.shared.activeSnapshots }
         }
     }
 }
 
-// MARK: - Dashboard
+// MARK: - Project chip
 
-struct DashboardView: View {
-    let snapshots: [Snapshot]
-    @Binding var filter: String?
-
-    private var llmSources: [String] {
-        Array(Set(snapshots.map { $0.llmSource.lowercased() })).sorted()
-    }
-
-    private var filtered: [Snapshot] {
-        guard let f = filter else { return snapshots }
-        return snapshots.filter { $0.llmSource.lowercased() == f }
-    }
-
-    let columns = [GridItem(.flexible()), GridItem(.flexible())]
-
-    var body: some View {
-        VStack(spacing: 0) {
-            // Filter bar
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 6) {
-                    FilterChip(label: "All", isActive: filter == nil) { filter = nil }
-                    ForEach(llmSources, id: \.self) { src in
-                        FilterChip(label: src.capitalized, isActive: filter == src) { filter = src }
-                    }
-                }
-                .padding(.horizontal, 16)
-                .padding(.vertical, 8)
-            }
-            Divider()
-
-            if filtered.isEmpty {
-                ContentUnavailableView("No snapshots", systemImage: "clock.arrow.circlepath")
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            } else {
-                ScrollView {
-                    LazyVGrid(columns: columns, spacing: 10) {
-                        ForEach(filtered) { snap in
-                            DashboardCard(snapshot: snap)
-                        }
-                    }
-                    .padding(12)
-                }
-            }
-        }
-    }
-}
-
-struct FilterChip: View {
+struct ProjectChip: View {
     let label: String
     let isActive: Bool
     let action: () -> Void
@@ -90,313 +88,352 @@ struct FilterChip: View {
     var body: some View {
         Button(action: action) {
             Text(label)
-                .font(.system(size: 11, weight: isActive ? .semibold : .regular))
-                .foregroundStyle(isActive ? Color.green : .secondary)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 5)
+                .font(.system(size: 12, weight: isActive ? .semibold : .regular))
+                .foregroundStyle(isActive ? Color.accentColor : .secondary)
+                .padding(.horizontal, 12).padding(.vertical, 5)
                 .background(
-                    isActive
-                        ? Color.green.opacity(0.12)
-                        : Color(UIColor.secondarySystemBackground),
-                    in: RoundedRectangle(cornerRadius: 6)
+                    isActive ? Color.accentColor.opacity(0.12) : Color(UIColor.secondarySystemBackground),
+                    in: Capsule()
                 )
-                .overlay(
-                    RoundedRectangle(cornerRadius: 6)
-                        .stroke(isActive ? Color.green.opacity(0.3) : Color.clear, lineWidth: 1)
-                )
+                .overlay(Capsule().stroke(isActive ? Color.accentColor.opacity(0.3) : Color.clear, lineWidth: 1))
         }
         .buttonStyle(.plain)
     }
 }
 
-struct DashboardCard: View {
+// MARK: - Toolbar
+
+struct MapToolbarView: View {
+    var body: some View {
+        HStack(spacing: 6) {
+            ToolBtn(label: "+ Ветка", color: .green)
+            ToolBtn(label: "🔗 Связь", color: .blue)
+            Spacer()
+            ToolBtn(label: "+", color: .secondary, width: 32)
+            ToolBtn(label: "−", color: .secondary, width: 32)
+            ToolBtn(label: "⊙", color: .secondary, width: 32)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(Color(UIColor.systemBackground))
+        .overlay(Divider(), alignment: .bottom)
+    }
+}
+
+struct ToolBtn: View {
+    let label: String
+    let color: Color
+    var width: CGFloat? = nil
+
+    var body: some View {
+        Button {} label: {
+            Text(label)
+                .font(.system(size: 11, weight: .medium))
+                .foregroundStyle(color == .secondary ? .secondary : color)
+                .frame(width: width)
+                .padding(.horizontal, width == nil ? 10 : 0)
+                .padding(.vertical, 5)
+                .background(color == .secondary ? Color(UIColor.secondarySystemBackground) : color.opacity(0.1),
+                            in: RoundedRectangle(cornerRadius: 7))
+                .overlay(RoundedRectangle(cornerRadius: 7).stroke(color == .secondary ? Color.clear : color.opacity(0.25), lineWidth: 0.5))
+        }
+        .buttonStyle(.plain)
+    }
+}
+
+// MARK: - Map info panel
+
+struct MapInfoPanel: View {
     let snapshot: Snapshot
+    let onDismiss: () -> Void
     @State private var showCopied = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            // Header
-            HStack(alignment: .top) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(snapshot.title)
-                        .font(.system(size: 12, weight: .semibold))
-                        .foregroundStyle(.primary)
-                        .lineLimit(2)
-                    Text(snapshot.createdAt, style: .relative)
-                        .font(.system(size: 10))
-                        .foregroundStyle(.tertiary)
-                }
-                Spacer(minLength: 4)
-                Circle()
-                    .fill(llmColor(snapshot.llmSource))
-                    .frame(width: 8, height: 8)
-                    .padding(.top, 3)
-            }
-
-            // LLM + files badges
-            HStack(spacing: 4) {
-                Text(snapshot.llmSource.isEmpty ? "Unknown" : snapshot.llmSource.capitalized)
-                    .font(.system(size: 9, weight: .medium))
-                    .foregroundStyle(.secondary)
-                    .padding(.horizontal, 5).padding(.vertical, 2)
-                    .background(Color.secondary.opacity(0.1), in: RoundedRectangle(cornerRadius: 4))
-                if !snapshot.attachedFiles.isEmpty {
-                    Text("📎 \(snapshot.attachedFiles.count)")
-                        .font(.system(size: 9))
+        VStack(alignment: .leading, spacing: 10) {
+            HStack {
+                Circle().fill(llmColor(snapshot.llmSource)).frame(width: 10, height: 10)
+                Text(snapshot.title)
+                    .font(.system(size: 14, weight: .semibold))
+                    .lineLimit(1)
+                Spacer()
+                Button(action: onDismiss) {
+                    Image(systemName: "xmark.circle.fill")
                         .foregroundStyle(.secondary)
-                }
-            }
-
-            // Goal preview
-            if !snapshot.goal.isEmpty {
-                Text(snapshot.goal)
-                    .font(.system(size: 10))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(3)
-            }
-
-            Spacer(minLength: 0)
-
-            // Actions
-            HStack(spacing: 6) {
-                Button {
-                    UIPasteboard.general.string = snapshot.contextText()
-                    showCopied = true
-                    Task {
-                        try? await Task.sleep(for: .seconds(1.5))
-                        showCopied = false
-                    }
-                } label: {
-                    Text(showCopied ? "✓" : "Load ↑")
-                        .font(.system(size: 10, weight: .semibold))
-                        .foregroundStyle(Color(red: 0.6, green: 0.44, blue: 1.0))
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 5)
-                        .background(Color(red: 0.49, green: 0.23, blue: 0.93).opacity(0.13),
-                                    in: RoundedRectangle(cornerRadius: 5))
-                        .overlay(RoundedRectangle(cornerRadius: 5)
-                            .stroke(Color(red: 0.49, green: 0.23, blue: 0.93).opacity(0.3), lineWidth: 0.5))
+                        .font(.system(size: 18))
                 }
                 .buttonStyle(.plain)
             }
+
+            HStack(spacing: 8) {
+                Text(snapshot.llmSource.capitalized)
+                    .font(.caption).foregroundStyle(.secondary)
+                    .padding(.horizontal, 6).padding(.vertical, 2)
+                    .background(Color.secondary.opacity(0.1), in: Capsule())
+                Text(snapshot.createdAt, style: .relative)
+                    .font(.caption).foregroundStyle(.secondary)
+                if let proj = snapshot.project {
+                    Text(proj).font(.caption).foregroundStyle(.accentColor)
+                        .padding(.horizontal, 6).padding(.vertical, 2)
+                        .background(Color.accentColor.opacity(0.1), in: Capsule())
+                }
+            }
+
+            if !snapshot.goal.isEmpty {
+                Text(snapshot.goal)
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+            }
+
+            Button {
+                UIPasteboard.general.string = snapshot.contextText()
+                showCopied = true
+                Task { try? await Task.sleep(for: .seconds(1.5)); showCopied = false }
+            } label: {
+                Label(showCopied ? "Скопировано ✓" : "Загрузить слепок", systemImage: "arrow.up.doc.fill")
+                    .font(.system(size: 13, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(maxWidth: .infinity)
+                    .padding(.vertical, 10)
+                    .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 10))
+            }
+            .buttonStyle(.plain)
         }
-        .padding(12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(Color(UIColor.secondarySystemBackground))
-        .clipShape(RoundedRectangle(cornerRadius: 10))
-        .overlay(
-            RoundedRectangle(cornerRadius: 10)
-                .stroke(Color.secondary.opacity(0.12), lineWidth: 0.5)
-        )
+        .padding(14)
+        .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 14))
+        .shadow(color: .black.opacity(0.12), radius: 12, y: 4)
     }
 
     private func llmColor(_ s: String) -> Color {
         switch s.lowercased() {
-        case "claude": return .orange
-        case "chatgpt": return .green
-        case "gemini": return .blue
-        case "grok": return .primary
-        case "perplexity": return .purple
-        default: return .gray
+        case "claude": return .orange; case "chatgpt": return .green
+        case "gemini": return .blue; case "grok": return .primary
+        case "perplexity": return .purple; default: return .gray
         }
     }
 }
 
-// MARK: - Graph
+// MARK: - UIViewRepresentable canvas
 
-struct MindMapGraphView: View {
-    let snapshots: [Snapshot]
-    @State private var selectedId: String? = nil
-
-    var body: some View {
-        ZStack {
-            Color(red: 0.031, green: 0.047, blue: 0.071)
-                .ignoresSafeArea()
-
-            if snapshots.isEmpty {
-                Text("No snapshots yet")
-                    .foregroundStyle(.secondary)
-                    .font(.system(size: 11))
-            } else {
-                // Toolbar
-                VStack {
-                    HStack(spacing: 6) {
-                        MapToolBtn(label: "+ Branch", style: .green)
-                        MapToolBtn(label: "🔗 Link", style: .blue)
-                        MapToolBtn(label: "Dashboard", style: .purple) {}
-                        Spacer()
-                        MapToolBtn(label: "+", style: .plain)
-                        MapToolBtn(label: "−", style: .plain)
-                    }
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 8)
-                    .background(Color(UIColor.systemBackground).opacity(0.05))
-                    Spacer()
-                }
-
-                CanvasView(snapshots: snapshots, selectedId: $selectedId)
-            }
-        }
-    }
-}
-
-struct CanvasView: UIViewRepresentable {
+struct MapCanvasRepresentable: UIViewRepresentable {
     let snapshots: [Snapshot]
     @Binding var selectedId: String?
 
-    func makeUIView(context: Context) -> MapCanvasUIView {
-        let v = MapCanvasUIView()
-        v.onNodeTap = { [self] id in
-            // UIView touches arrive on main thread
-            selectedId = id
+    func makeCoordinator() -> Coordinator { Coordinator(binding: $selectedId) }
+
+    func makeUIView(context: Context) -> MapCanvasView {
+        let v = MapCanvasView()
+        v.onNodeTap = { [coordinator = context.coordinator] id in
+            coordinator.binding.wrappedValue = coordinator.binding.wrappedValue == id ? nil : id
         }
         return v
     }
-    func updateUIView(_ uiView: MapCanvasUIView, context: Context) {
-        uiView.setSnapshots(snapshots, selected: selectedId)
+
+    func updateUIView(_ v: MapCanvasView, context: Context) {
+        context.coordinator.binding = $selectedId
+        v.setSnapshots(snapshots, selectedId: selectedId)
+    }
+
+    class Coordinator {
+        var binding: Binding<String?>
+        init(binding: Binding<String?>) { self.binding = binding }
     }
 }
 
-final class MapCanvasUIView: UIView {
+// MARK: - MapCanvasView (UIView with pan + zoom + tap)
+
+final class MapCanvasView: UIView {
     var onNodeTap: ((String) -> Void)?
+
     private var snapshots: [Snapshot] = []
     private var selectedId: String? = nil
-    private let colors: [UIColor] = [.systemOrange, .systemGreen, .systemBlue, .systemPurple, .systemRed, .systemTeal]
+    private var positions: [String: CGPoint] = [:]
 
-    func setSnapshots(_ snaps: [Snapshot], selected: String?) {
-        snapshots = snaps; selectedId = selected
+    // Pan & zoom state
+    private var scale: CGFloat = 1
+    private var offset: CGPoint = .zero
+    private var lastPanLoc: CGPoint = .zero
+    private var isPanning = false
+
+    private let nodeColors: [UIColor] = [
+        .systemOrange, .systemGreen, .systemBlue,
+        .systemPurple, .systemRed, .systemTeal, .systemYellow
+    ]
+    private var colorMap: [String: UIColor] = [:]
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        backgroundColor = .clear
+        let pan = UIPanGestureRecognizer(target: self, action: #selector(handlePan))
+        let pinch = UIPinchGestureRecognizer(target: self, action: #selector(handlePinch))
+        let tap = UITapGestureRecognizer(target: self, action: #selector(handleTap))
+        [pan, pinch, tap].forEach { addGestureRecognizer($0) }
+    }
+    required init?(coder: NSCoder) { fatalError() }
+
+    func setSnapshots(_ snaps: [Snapshot], selectedId: String?) {
+        self.snapshots = snaps
+        self.selectedId = selectedId
+        recomputeLayout()
         setNeedsDisplay()
+    }
+
+    private func recomputeLayout() {
+        positions = [:]
+        colorMap = [:]
+        let roots = snapshots.filter { $0.parentId == nil }
+        let colW: CGFloat = max(120, bounds.width / CGFloat(max(roots.count, 1)))
+        let rowH: CGFloat = 110
+
+        for (ci, root) in roots.enumerated() {
+            colorMap[root.id] = nodeColors[ci % nodeColors.count]
+            let cx = colW * CGFloat(ci) + colW / 2
+            positions[root.id] = CGPoint(x: cx, y: 60)
+            layoutChildren(of: root.id, parentPos: CGPoint(x: cx, y: 60),
+                           depth: 1, rowH: rowH, colW: colW, colorIndex: ci)
+        }
+    }
+
+    private func layoutChildren(of parentId: String, parentPos: CGPoint,
+                                depth: Int, rowH: CGFloat, colW: CGFloat, colorIndex: Int) {
+        let children = snapshots.filter { $0.parentId == parentId }
+        let spread = colW
+        for (i, child) in children.enumerated() {
+            let offset = (CGFloat(i) - CGFloat(children.count - 1) / 2) * spread
+            let pos = CGPoint(x: parentPos.x + offset, y: parentPos.y + rowH)
+            positions[child.id] = pos
+            colorMap[child.id] = nodeColors[colorIndex % nodeColors.count]
+            layoutChildren(of: child.id, parentPos: pos, depth: depth + 1,
+                           rowH: rowH, colW: colW, colorIndex: colorIndex)
+        }
     }
 
     override func draw(_ rect: CGRect) {
         guard let ctx = UIGraphicsGetCurrentContext() else { return }
-        ctx.setFillColor(UIColor(red: 0.031, green: 0.047, blue: 0.071, alpha: 1).cgColor)
-        ctx.fill(rect)
 
-        let positions = computePositions(in: rect)
+        // Apply pan + zoom transform
+        ctx.saveGState()
+        ctx.translateBy(x: offset.x, y: offset.y)
+        ctx.scaleBy(x: scale, y: scale)
 
-        // Edges
+        drawEdges(ctx)
+        drawNodes(ctx)
+
+        ctx.restoreGState()
+    }
+
+    private func drawEdges(_ ctx: CGContext) {
+        ctx.setLineWidth(1.5 / scale)
         for snap in snapshots {
-            guard let parentId = snap.parentId,
-                  let from = positions[parentId],
-                  let to = positions[snap.id] else { continue }
-            ctx.setStrokeColor(UIColor(white: 1, alpha: 0.08).cgColor)
-            ctx.setLineWidth(1)
-            ctx.move(to: from); ctx.addLine(to: to); ctx.strokePath()
+            guard let pid = snap.parentId,
+                  let from = positions[pid], let to = positions[snap.id] else { continue }
+            let col = colorMap[pid] ?? .systemGray
+            ctx.setStrokeColor(col.withAlphaComponent(0.25).cgColor)
+            // Curved edge
+            let cp1 = CGPoint(x: from.x, y: from.y + (to.y - from.y) * 0.5)
+            let cp2 = CGPoint(x: to.x, y: to.y - (to.y - from.y) * 0.5)
+            let path = UIBezierPath()
+            path.move(to: from)
+            path.addCurve(to: to, controlPoint1: cp1, controlPoint2: cp2)
+            ctx.addPath(path.cgPath)
+            ctx.strokePath()
         }
+    }
 
-        // Nodes
+    private func drawNodes(_ ctx: CGContext) {
         for (i, snap) in snapshots.enumerated() {
             guard let pos = positions[snap.id] else { continue }
-            let isHead = snap.parentId == nil
-            let isSelected = snap.id == selectedId
-            let col = colors[i % colors.count]
-            let r: CGFloat = isHead ? 10 : 7
+            let col = colorMap[snap.id] ?? .systemGray
+            let isRoot = snap.parentId == nil
+            let isSel = snap.id == selectedId
+            let r: CGFloat = isRoot ? 11 : 8
 
-            // Glow for head
-            if isHead {
-                ctx.setFillColor(col.withAlphaComponent(0.2).cgColor)
-                ctx.fillEllipse(in: CGRect(x: pos.x - r - 4, y: pos.y - r - 4, width: (r + 4) * 2, height: (r + 4) * 2))
+            // Glow for root
+            if isRoot {
+                ctx.setFillColor(col.withAlphaComponent(0.15).cgColor)
+                let gr = r + 5
+                ctx.fillEllipse(in: CGRect(x: pos.x - gr, y: pos.y - gr, width: gr * 2, height: gr * 2))
             }
 
-            // Node circle
-            ctx.setFillColor((isSelected ? UIColor.white : col).cgColor)
+            // Node
+            ctx.setFillColor(isSel ? UIColor.white.cgColor : col.cgColor)
             ctx.fillEllipse(in: CGRect(x: pos.x - r, y: pos.y - r, width: r * 2, height: r * 2))
 
-            // Border
-            if isSelected {
-                ctx.setStrokeColor(col.cgColor); ctx.setLineWidth(2)
-                ctx.strokeEllipse(in: CGRect(x: pos.x - r - 1, y: pos.y - r - 1, width: (r + 1) * 2, height: (r + 1) * 2))
+            // Selected ring
+            if isSel {
+                ctx.setStrokeColor(col.cgColor)
+                ctx.setLineWidth(2.5 / scale)
+                ctx.strokeEllipse(in: CGRect(x: pos.x - r - 2, y: pos.y - r - 2, width: (r + 2) * 2, height: (r + 2) * 2))
             }
 
             // Label
-            let label = String(snap.title.prefix(18)) + (snap.title.count > 18 ? "…" : "")
+            let label = snap.title.count > 16 ? String(snap.title.prefix(15)) + "…" : snap.title
+            let fontSize: CGFloat = isRoot ? 9.5 : 8.5
             let attrs: [NSAttributedString.Key: Any] = [
-                .font: UIFont.systemFont(ofSize: isHead ? 8.5 : 7.5, weight: isHead ? .semibold : .regular),
-                .foregroundColor: isHead ? UIColor.white.withAlphaComponent(0.8) : UIColor.white.withAlphaComponent(0.45),
+                .font: UIFont.systemFont(ofSize: fontSize / scale, weight: isRoot ? .semibold : .regular),
+                .foregroundColor: isSel ? col : UIColor.label.withAlphaComponent(isRoot ? 0.8 : 0.55),
             ]
             let size = (label as NSString).size(withAttributes: attrs)
-            (label as NSString).draw(at: CGPoint(x: pos.x - size.width / 2, y: pos.y + r + 4), withAttributes: attrs)
+            let lx = pos.x - size.width / 2
+            let ly = pos.y + r + 3 / scale
+            (label as NSString).draw(at: CGPoint(x: lx, y: ly), withAttributes: attrs)
         }
     }
 
-    private func computePositions(in rect: CGRect) -> [String: CGPoint] {
-        var result: [String: CGPoint] = [:]
-        let roots = snapshots.filter { $0.parentId == nil }
-        let colW = rect.width / CGFloat(max(roots.count, 1))
+    // MARK: - Gestures
 
-        for (ci, root) in roots.enumerated() {
-            let cx = colW * CGFloat(ci) + colW / 2
-            result[root.id] = CGPoint(x: cx, y: rect.height * 0.18)
-            layoutChildren(of: root.id, parent: CGPoint(x: cx, y: rect.height * 0.18),
-                           depth: 1, rect: rect, result: &result)
-        }
-        return result
-    }
-
-    private func layoutChildren(of parentId: String, parent: CGPoint, depth: Int, rect: CGRect, result: inout [String: CGPoint]) {
-        let children = snapshots.filter { $0.parentId == parentId }
-        let spread: CGFloat = rect.width / CGFloat(max(children.count, 1))
-        let yStep: CGFloat = rect.height * 0.22
-        for (i, child) in children.enumerated() {
-            let x = spread * CGFloat(i) + spread / 2
-            let y = parent.y + yStep
-            result[child.id] = CGPoint(x: x, y: y)
-            layoutChildren(of: child.id, parent: CGPoint(x: x, y: y), depth: depth + 1, rect: rect, result: &result)
+    @objc private func handlePan(_ g: UIPanGestureRecognizer) {
+        let loc = g.location(in: self)
+        switch g.state {
+        case .began: lastPanLoc = loc
+        case .changed:
+            offset.x += loc.x - lastPanLoc.x
+            offset.y += loc.y - lastPanLoc.y
+            lastPanLoc = loc
+            setNeedsDisplay()
+        default: break
         }
     }
 
-    override func touchesEnded(_ touches: Set<UITouch>, with event: UIEvent?) {
-        guard let pt = touches.first?.location(in: self) else { return }
-        let positions = computePositions(in: bounds)
+    @objc private func handlePinch(_ g: UIPinchGestureRecognizer) {
+        if g.state == .changed {
+            let newScale = max(0.3, min(3.0, scale * g.scale))
+            scale = newScale
+            g.scale = 1
+            setNeedsDisplay()
+        }
+    }
+
+    @objc private func handleTap(_ g: UITapGestureRecognizer) {
+        let raw = g.location(in: self)
+        // Convert to canvas space
+        let cx = (raw.x - offset.x) / scale
+        let cy = (raw.y - offset.y) / scale
+        let pt = CGPoint(x: cx, y: cy)
+
         for (id, pos) in positions {
-            if hypot(pt.x - pos.x, pt.y - pos.y) < 16 {
-                onNodeTap?(id); return
+            let snap = snapshots.first { $0.id == id }
+            let r: CGFloat = snap?.parentId == nil ? 14 : 11
+            if hypot(pt.x - pos.x, pt.y - pos.y) < r {
+                onNodeTap?(id)
+                return
             }
         }
-    }
-}
-
-struct MapToolBtn: View {
-    let label: String
-    enum Style { case green, blue, purple, plain }
-    let style: Style
-    var action: (() -> Void)? = nil
-
-    var body: some View {
-        Button { action?() } label: {
-            Text(label)
-                .font(.system(size: 10, weight: .medium))
-                .foregroundStyle(fgColor)
-                .padding(.horizontal, 8).padding(.vertical, 5)
-                .background(bgColor, in: RoundedRectangle(cornerRadius: 6))
-                .overlay(RoundedRectangle(cornerRadius: 6).stroke(borderColor, lineWidth: 0.5))
-        }
-        .buttonStyle(.plain)
+        // Tap on empty → deselect
+        onNodeTap?("")
     }
 
-    private var fgColor: Color {
-        switch style {
-        case .green: return Color(red: 0.29, green: 0.85, blue: 0.47)
-        case .blue: return Color(red: 0.58, green: 0.65, blue: 0.98)
-        case .purple: return Color(red: 0.77, green: 0.71, blue: 1.0)
-        case .default: return .secondary
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        recomputeLayout()
+        // Center the graph initially
+        if !snapshots.isEmpty && offset == .zero {
+            let allX = positions.values.map { $0.x }
+            let minX = allX.min() ?? 0
+            let maxX = allX.max() ?? bounds.width
+            let midX = (minX + maxX) / 2
+            offset = CGPoint(x: bounds.midX - midX * scale, y: 20)
         }
-    }
-    private var bgColor: Color {
-        switch style {
-        case .green: return Color(red: 0.1, green: 0.23, blue: 0.16)
-        case .blue: return Color(red: 0.08, green: 0.13, blue: 0.25)
-        case .purple: return Color(red: 0.1, green: 0.08, blue: 0.21)
-        case .default: return Color(UIColor.systemBackground).opacity(0.06)
-        }
-    }
-    private var borderColor: Color {
-        switch style {
-        case .green: return Color(red: 0.13, green: 0.77, blue: 0.37).opacity(0.3)
-        case .blue: return Color(red: 0.23, green: 0.52, blue: 0.96).opacity(0.3)
-        case .purple: return Color(red: 0.49, green: 0.23, blue: 0.93).opacity(0.3)
-        case .default: return Color.secondary.opacity(0.15)
-        }
+        setNeedsDisplay()
     }
 }
