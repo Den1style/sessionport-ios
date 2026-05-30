@@ -22,7 +22,6 @@ targets:
     sources:
       - path: SessionPortApp
       - path: SessionPortCore
-      - path: SessionPortCore/Extensions
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.sessionport.app

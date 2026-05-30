@@ -5,9 +5,6 @@ struct PromptsView: View {
 
     @State private var prompts = SharedStorage.shared.prompts
     @State private var expandedId: String? = nil
-    @State private var showNew = false
-    @State private var newTitle = ""
-    @State private var newBody = ""
 
     var body: some View {
         ScrollView(.vertical, showsIndicators: false) {
@@ -24,68 +21,39 @@ struct PromptsView: View {
                         onInsert: {
                             onInsert(p.insertionText())
                             expandedId = nil
-                        },
-                        onDelete: {
-                            SharedStorage.shared.deletePrompt(id: p.id)
-                            prompts = SharedStorage.shared.prompts
-                            if expandedId == p.id { expandedId = nil }
                         }
                     )
                 }
-                // New prompt button
-                Button { showNew = true } label: {
-                    Label("New prompt", systemImage: "plus.circle.fill")
-                        .font(.system(size: 13, weight: .medium))
-                        .foregroundStyle(.accentColor)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 9)
-                        .background(Color.accentColor.opacity(0.09), in: RoundedRectangle(cornerRadius: 9))
+
+                // Hint — keyboard extension can't present sheets
+                HStack(spacing: 6) {
+                    Image(systemName: "arrow.up.right.square")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
+                    Text("Create prompts in the SessionPort app")
+                        .font(.system(size: 10))
+                        .foregroundStyle(.secondary)
                 }
-                .buttonStyle(.plain)
+                .padding(.vertical, 6)
             }
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
         }
         .frame(maxHeight: 180)
-        .sheet(isPresented: $showNew) { newPromptSheet }
-    }
-
-    private var newPromptSheet: some View {
-        NavigationStack {
-            Form {
-                Section("Title") { TextField("Prompt title", text: $newTitle) }
-                Section("Body (use {{variable}} for placeholders)") {
-                    TextEditor(text: $newBody).frame(minHeight: 100)
-                }
-            }
-            .navigationTitle("New Prompt")
-            .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { showNew = false } }
-                ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
-                        guard !newTitle.isEmpty, !newBody.isEmpty else { return }
-                        let p = PromptItem(title: String(newTitle.prefix(100)), body: String(newBody.prefix(2000)))
-                        SharedStorage.shared.addPrompt(p)
-                        prompts = SharedStorage.shared.prompts
-                        newTitle = ""; newBody = ""
-                        showNew = false
-                    }
-                    .disabled(newTitle.isEmpty || newBody.isEmpty)
-                }
-            }
+        .onAppear {
+            // Reload in case user created prompts in the app
+            prompts = SharedStorage.shared.prompts
         }
     }
 }
 
-// MARK: - PromptRow — matches mockup (indigo expanded bg, Insert ↑ button)
+// MARK: - PromptRow
 
 struct PromptRow: View {
     let prompt: PromptItem
     let isExpanded: Bool
     let onTap: () -> Void
     let onInsert: () -> Void
-    let onDelete: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
@@ -117,27 +85,39 @@ struct PromptRow: View {
             .buttonStyle(.plain)
 
             if isExpanded {
-                Divider().overlay(Color.white.opacity(0.08)).padding(.horizontal, 12)
+                Divider()
+                    .overlay(Color.white.opacity(0.08))
+                    .padding(.horizontal, 12)
+
                 Text(prompt.body)
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
                     .lineLimit(5)
                     .padding(.horizontal, 12)
                     .padding(.top, 8)
+
+                if !prompt.attachedFiles.isEmpty {
+                    HStack(spacing: 4) {
+                        Image(systemName: "paperclip")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                        Text("\(prompt.attachedFiles.count) file\(prompt.attachedFiles.count == 1 ? "" : "s") attached")
+                            .font(.system(size: 10))
+                            .foregroundStyle(.secondary)
+                    }
+                    .padding(.horizontal, 12)
+                    .padding(.top, 4)
+                }
+
                 HStack {
                     Spacer()
-                    Button(role: .destructive) { onDelete() } label: {
-                        Image(systemName: "trash").font(.system(size: 12)).foregroundStyle(.red)
-                    }
-                    .buttonStyle(.plain)
                     Button(action: onInsert) {
-                        HStack(spacing: 4) {
-                            Text("Insert ↑").font(.system(size: 12, weight: .semibold))
-                        }
-                        .foregroundStyle(.white)
-                        .padding(.horizontal, 16)
-                        .padding(.vertical, 8)
-                        .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 8))
+                        Text("Insert ↑")
+                            .font(.system(size: 12, weight: .semibold))
+                            .foregroundStyle(.white)
+                            .padding(.horizontal, 16)
+                            .padding(.vertical, 8)
+                            .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 8))
                     }
                     .buttonStyle(.plain)
                 }

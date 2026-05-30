@@ -1,6 +1,7 @@
 import Foundation
 import AuthenticationServices
 import Security
+import UIKit
 
 // Google OAuth 2.0 via ASWebAuthenticationSession — no external SDK.
 // Scope: drive.file (only files this app creates).

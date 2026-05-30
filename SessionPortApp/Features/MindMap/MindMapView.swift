@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 enum MindMapTab { case map, dashboard }
 
@@ -221,8 +222,8 @@ struct MindMapGraphView: View {
                         MapToolBtn(label: "🔗 Link", style: .blue)
                         MapToolBtn(label: "Dashboard", style: .purple) {}
                         Spacer()
-                        MapToolBtn(label: "+", style: .default)
-                        MapToolBtn(label: "−", style: .default)
+                        MapToolBtn(label: "+", style: .plain)
+                        MapToolBtn(label: "−", style: .plain)
                     }
                     .padding(.horizontal, 12)
                     .padding(.vertical, 8)
@@ -242,7 +243,10 @@ struct CanvasView: UIViewRepresentable {
 
     func makeUIView(context: Context) -> MapCanvasUIView {
         let v = MapCanvasUIView()
-        v.onNodeTap = { id in selectedId = id }
+        v.onNodeTap = { [self] id in
+            // UIView touches arrive on main thread
+            selectedId = id
+        }
         return v
     }
     func updateUIView(_ uiView: MapCanvasUIView, context: Context) {
@@ -352,7 +356,7 @@ final class MapCanvasUIView: UIView {
 
 struct MapToolBtn: View {
     let label: String
-    enum Style { case green, blue, purple, `default` }
+    enum Style { case green, blue, purple, plain }
     let style: Style
     var action: (() -> Void)? = nil
 

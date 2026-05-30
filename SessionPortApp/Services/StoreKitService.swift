@@ -1,5 +1,6 @@
 import StoreKit
 import Foundation
+import SwiftUI
 
 private let kProProductID = "com.sessionport.app.pro.monthly"
 
