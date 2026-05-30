@@ -34,7 +34,7 @@ struct OnboardingView: View {
             VStack(spacing: 24) {
                 Image(systemName: current.icon)
                     .font(.system(size: 64))
-                    .foregroundColor(.accentColor)
+                    .foregroundStyle(.accentColor)
                     .symbolRenderingMode(.hierarchical)
 
                 VStack(spacing: 10) {
@@ -43,7 +43,7 @@ struct OnboardingView: View {
 
                     Text(current.body)
                         .font(.body)
-                        .foregroundColor(.secondary)
+                        .foregroundStyle(.secondary)
                         .multilineTextAlignment(.center)
                         .padding(.horizontal, 32)
                 }
@@ -83,13 +83,13 @@ struct OnboardingView: View {
                 .frame(maxWidth: .infinity)
                 .frame(height: 50)
                 .background(Color.accentColor)
-                .foregroundColor(.white)
+                .foregroundStyle(.white)
                 .clipShape(RoundedRectangle(cornerRadius: 14))
                 .padding(.horizontal, 24)
             }
             .padding(.bottom, 40)
         }
-        .navigationBarHidden(true)
+        .toolbar(.hidden, for: .navigationBar)
         .animation(.easeInOut(duration: 0.3), value: step)
     }
 }

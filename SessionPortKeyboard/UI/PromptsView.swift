@@ -22,7 +22,7 @@ struct PromptsView: View {
                             }
                         },
                         onInsert: {
-                            onInsert(p.body)
+                            onInsert(p.insertionText())
                             expandedId = nil
                         },
                         onDelete: {
@@ -91,12 +91,9 @@ struct PromptRow: View {
         VStack(alignment: .leading, spacing: 0) {
             Button(action: onTap) {
                 HStack(spacing: 10) {
-                    if !prompt.body.isEmpty {
-                        Text(String(prompt.body.prefix(2)).trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-                             ? "📝" : String(prompt.body.unicodeScalars.first.map { Character($0) } ?? "📝"))
-                            .font(.system(size: 18))
-                            .frame(width: 28)
-                    }
+                    Text(prompt.isFavorite ? "⭐" : "📝")
+                        .font(.system(size: 16))
+                        .frame(width: 24)
                     VStack(alignment: .leading, spacing: 2) {
                         Text(prompt.title)
                             .font(.system(size: 13, weight: .semibold))

@@ -16,7 +16,7 @@ struct ContentView: View {
     }
 }
 
-// MARK: - Main Tab View (mirrors browser extension features)
+// MARK: - Main Tab View
 
 struct MainTabView: View {
     @EnvironmentObject var drive: GoogleDriveService
@@ -26,21 +26,20 @@ struct MainTabView: View {
         TabView {
             SnapshotsTab()
                 .tabItem { Label("Snapshots", systemImage: "clock.arrow.circlepath") }
+                .environmentObject(drive)
+                .environmentObject(store)
 
             PromptsLibraryTab()
                 .tabItem { Label("Prompts", systemImage: "pencil.and.list.clipboard") }
 
-            FilesTab()
-                .tabItem { Label("Files", systemImage: "doc.on.doc") }
-
-            MindMapTab()
-                .tabItem { Label("Map", systemImage: "point.3.connected.trianglepath.dotted") }
+            MindMapContainerView()
+                .tabItem { Label("Mind Map", systemImage: "brain.head.profile") }
 
             SettingsTab()
                 .tabItem { Label("Settings", systemImage: "gear") }
+                .environmentObject(drive)
+                .environmentObject(store)
         }
-        .environmentObject(drive)
-        .environmentObject(store)
     }
 }
 
@@ -91,9 +90,7 @@ struct SnapshotsTab: View {
             .toolbar {
                 if drive.isConnected {
                     ToolbarItem(placement: .navigationBarLeading) {
-                        Button {
-                            Task { await drive.sync() }
-                        } label: {
+                        Button { Task { await drive.sync() } } label: {
                             Image(systemName: "arrow.clockwise")
                                 .symbolEffect(.rotate, isActive: drive.isSyncing)
                         }
@@ -112,73 +109,6 @@ struct SnapshotsTab: View {
     }
 }
 
-// MARK: - Snapshot Detail
-
-struct SnapshotDetailView: View {
-    let snapshot: Snapshot
-    @State private var showCopied = false
-
-    var body: some View {
-        List {
-            if !snapshot.goal.isEmpty {
-                Section("Goal") { Text(snapshot.goal).font(.body) }
-            }
-            if !snapshot.decisions.isEmpty {
-                Section("Decisions (\(snapshot.decisions.count))") {
-                    ForEach(snapshot.decisions, id: \.self) { d in
-                        Label(d, systemImage: "checkmark.circle.fill")
-                            .foregroundStyle(.green, .primary)
-                    }
-                }
-            }
-            if !snapshot.rejected.isEmpty {
-                Section("Rejected") {
-                    ForEach(snapshot.rejected, id: \.self) { r in
-                        Label(r, systemImage: "xmark.circle.fill")
-                            .foregroundStyle(.red, .primary)
-                    }
-                }
-            }
-            if !snapshot.state.isEmpty {
-                Section("State") { Text(snapshot.state) }
-            }
-            if !snapshot.nextStep.isEmpty {
-                Section("Next Step") {
-                    Label(snapshot.nextStep, systemImage: "arrow.right.circle.fill")
-                        .foregroundStyle(.accentColor, .primary)
-                }
-            }
-            Section {
-                Button {
-                    UIPasteboard.general.string = snapshot.contextText()
-                    showCopied = true
-                } label: {
-                    Label("Copy context", systemImage: "doc.on.clipboard")
-                }
-            }
-        }
-        .navigationTitle(snapshot.title)
-        .navigationBarTitleDisplayMode(.inline)
-        .overlay(alignment: .bottom) {
-            if showCopied {
-                Text("Copied ✓")
-                    .font(.subheadline)
-                    .padding(.horizontal, 16)
-                    .padding(.vertical, 8)
-                    .background(.ultraThinMaterial, in: Capsule())
-                    .padding(.bottom, 20)
-                    .transition(.move(edge: .bottom).combined(with: .opacity))
-                    .onAppear {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                            withAnimation { showCopied = false }
-                        }
-                    }
-            }
-        }
-        .animation(.easeInOut(duration: 0.25), value: showCopied)
-    }
-}
-
 // MARK: - Prompts Library Tab
 
 struct PromptsLibraryTab: View {
@@ -191,20 +121,31 @@ struct PromptsLibraryTab: View {
         NavigationStack {
             List {
                 ForEach(prompts) { p in
-                    NavigationLink(destination: PromptDetailView(prompt: p, onSave: { updated in
-                        SharedStorage.shared.addPrompt(updated)
-                        prompts = SharedStorage.shared.prompts
-                    })) {
+                    NavigationLink(destination: PromptDetailView(prompt: p)) {
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(p.title).font(.headline)
+                            HStack(spacing: 6) {
+                                if p.isFavorite {
+                                    Image(systemName: "star.fill")
+                                        .font(.caption)
+                                        .foregroundStyle(.yellow)
+                                }
+                                Text(p.title).font(.headline)
+                            }
                             Text(p.body)
                                 .font(.subheadline)
                                 .foregroundStyle(.secondary)
                                 .lineLimit(2)
-                            if !p.variables.isEmpty {
-                                Text(p.variables.map { "{{\($0)}}" }.joined(separator: " "))
-                                    .font(.caption)
-                                    .foregroundStyle(.accentColor)
+                            HStack(spacing: 8) {
+                                if !p.variables.isEmpty {
+                                    Text(p.variables.map { "{{\($0)}}" }.joined(separator: " "))
+                                        .font(.caption)
+                                        .foregroundStyle(.accentColor)
+                                }
+                                if !p.attachedFiles.isEmpty {
+                                    Text("📎 \(p.attachedFiles.count)")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
                             }
                         }
                         .padding(.vertical, 2)
@@ -224,51 +165,82 @@ struct PromptsLibraryTab: View {
             .onAppear { prompts = SharedStorage.shared.prompts }
         }
         .sheet(isPresented: $showNew) {
-            NavigationStack {
-                Form {
-                    Section("Title") { TextField("", text: $newTitle) }
-                    Section("Body") { TextEditor(text: $newBody).frame(minHeight: 100) }
+            NewPromptSheet { prompt in
+                SharedStorage.shared.addPrompt(prompt)
+                prompts = SharedStorage.shared.prompts
+            }
+        }
+    }
+}
+
+// MARK: - New Prompt Sheet
+
+struct NewPromptSheet: View {
+    let onSave: (PromptItem) -> Void
+    @Environment(\.dismiss) private var dismiss
+    @State private var title = ""
+    @State private var body_ = ""
+    @State private var isFavorite = false
+
+    var body: some View {
+        NavigationStack {
+            Form {
+                Section("Title") {
+                    TextField("Prompt title", text: $title)
                 }
-                .navigationTitle("New Prompt")
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbar {
-                    ToolbarItem(placement: .cancellationAction) { Button("Cancel") { showNew = false } }
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Save") {
-                            guard !newTitle.isEmpty, !newBody.isEmpty else { return }
-                            SharedStorage.shared.addPrompt(PromptItem(
-                                title: String(newTitle.prefix(100)),
-                                body: String(newBody.prefix(2000))
-                            ))
-                            prompts = SharedStorage.shared.prompts
-                            newTitle = ""; newBody = ""
-                            showNew = false
-                        }
-                        .disabled(newTitle.isEmpty || newBody.isEmpty)
+                Section("Body (use {{variable}} for placeholders)") {
+                    TextEditor(text: $body_).frame(minHeight: 100)
+                }
+                Section {
+                    Toggle("Favourite", isOn: $isFavorite)
+                }
+            }
+            .navigationTitle("New Prompt")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .cancellationAction) { Button("Cancel") { dismiss() } }
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Save") {
+                        guard !title.isEmpty, !body_.isEmpty else { return }
+                        onSave(PromptItem(
+                            title: String(title.prefix(100)),
+                            body: String(body_.prefix(2000)),
+                            isFavorite: isFavorite
+                        ))
+                        dismiss()
                     }
+                    .disabled(title.isEmpty || body_.isEmpty)
                 }
             }
         }
     }
 }
 
+// MARK: - Prompt Detail View (with files + variables)
+
 struct PromptDetailView: View {
     @State var prompt: PromptItem
-    let onSave: (PromptItem) -> Void
     @State private var varValues: [String: String] = [:]
     @State private var showCopied = false
+    @State private var showFilePicker = false
+    @State private var fileError: String? = nil
     @Environment(\.dismiss) private var dismiss
 
-    var resolved: String { prompt.resolved(with: varValues) }
+    var resolved: String { prompt.insertionText(variableValues: varValues) }
 
     var body: some View {
         List {
-            Section("Body") { Text(prompt.body) }
+            Section("Body") {
+                Text(prompt.body).font(.body)
+            }
+
             if !prompt.variables.isEmpty {
                 Section("Variables") {
                     ForEach(prompt.variables, id: \.self) { v in
                         HStack {
-                            Text("{{\(v)}}").foregroundStyle(.accentColor).font(.caption.monospaced())
+                            Text("{{\(v)}}")
+                                .foregroundStyle(.accentColor)
+                                .font(.caption.monospaced())
                             Spacer()
                             TextField("value", text: Binding(
                                 get: { varValues[v] ?? "" },
@@ -279,130 +251,95 @@ struct PromptDetailView: View {
                     }
                 }
                 Section("Preview") {
-                    Text(resolved).font(.body).foregroundStyle(.secondary)
+                    Text(resolved)
+                        .font(.body)
+                        .foregroundStyle(.secondary)
                 }
             }
+
+            // Attached files
+            Section {
+                ForEach(prompt.attachedFiles) { file in
+                    HStack(spacing: 10) {
+                        FileIcon(mimeType: file.mimeType)
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(file.name).font(.system(size: 13, weight: .medium)).lineLimit(1)
+                            Text(file.displaySize).font(.caption).foregroundStyle(.secondary)
+                        }
+                        Spacer()
+                        Button(role: .destructive) {
+                            prompt.attachedFiles.removeAll { $0.id == file.id }
+                            SharedStorage.shared.updatePrompt(prompt)
+                        } label: {
+                            Image(systemName: "trash").font(.caption)
+                        }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.red)
+                    }
+                }
+                Button {
+                    showFilePicker = true
+                } label: {
+                    Label("Attach file", systemImage: "paperclip")
+                        .foregroundStyle(.accentColor)
+                }
+            } header: {
+                HStack {
+                    Text("Files")
+                    if !prompt.attachedFiles.isEmpty {
+                        Text("(\(prompt.attachedFiles.count))").foregroundStyle(.secondary)
+                    }
+                }
+            }
+
             Section {
                 Button {
                     UIPasteboard.general.string = resolved
                     showCopied = true
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
+                        withAnimation { showCopied = false }
+                    }
                 } label: {
-                    Label("Copy", systemImage: "doc.on.clipboard")
+                    Label(showCopied ? "Copied ✓" : "Copy & Insert", systemImage: "doc.on.clipboard")
                 }
+
+                Toggle("Favourite", isOn: Binding(
+                    get: { prompt.isFavorite },
+                    set: { prompt.isFavorite = $0; SharedStorage.shared.updatePrompt(prompt) }
+                ))
             }
         }
         .navigationTitle(prompt.title)
         .navigationBarTitleDisplayMode(.inline)
-        .overlay(alignment: .bottom) {
-            if showCopied {
-                Text("Copied ✓")
-                    .font(.subheadline)
-                    .padding(.horizontal, 16).padding(.vertical, 8)
-                    .background(.ultraThinMaterial, in: Capsule())
-                    .padding(.bottom, 20)
-                    .onAppear {
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 1.5) {
-                            withAnimation { showCopied = false }
-                        }
-                    }
-            }
+        .fileImporter(isPresented: $showFilePicker, allowedContentTypes: [.data], allowsMultipleSelection: true) { result in
+            handleFilePick(result)
         }
-        .animation(.easeInOut(duration: 0.2), value: showCopied)
+        .alert("File error", isPresented: Binding(get: { fileError != nil }, set: { if !$0 { fileError = nil } })) {
+            Button("OK") { fileError = nil }
+        } message: { Text(fileError ?? "") }
     }
-}
 
-// MARK: - Files Tab
-
-struct FilesTab: View {
-    var body: some View {
-        NavigationStack {
-            ContentUnavailableView(
-                "Files",
-                systemImage: "doc.on.doc",
-                description: Text("Drag & drop files from the browser extension will appear here.\nFile sync via Google Drive coming soon.")
-            )
-            .navigationTitle("Files")
-        }
-    }
-}
-
-// MARK: - Mind Map Tab
-
-struct MindMapTab: View {
-    @State private var snapshots = SharedStorage.shared.snapshots
-
-    var body: some View {
-        NavigationStack {
-            if snapshots.isEmpty {
-                ContentUnavailableView(
-                    "No snapshots",
-                    systemImage: "point.3.connected.trianglepath.dotted",
-                    description: Text("Save snapshots to see the context graph")
+    private func handleFilePick(_ result: Result<[URL], Error>) {
+        switch result {
+        case .failure(let e): fileError = e.localizedDescription
+        case .success(let urls):
+            for url in urls {
+                guard url.startAccessingSecurityScopedResource() else { continue }
+                defer { url.stopAccessingSecurityScopedResource() }
+                guard let data = try? Data(contentsOf: url) else { continue }
+                guard data.count <= 5 * 1024 * 1024 else {
+                    fileError = "\(url.lastPathComponent) exceeds 5 MB limit"; continue
+                }
+                let file = AttachedFile(
+                    id: UUID().uuidString,
+                    name: url.lastPathComponent,
+                    mimeType: url.mimeType,
+                    sizeBytes: data.count,
+                    base64: data.base64EncodedString()
                 )
-            } else {
-                MindMapView(snapshots: snapshots)
+                prompt.attachedFiles.append(file)
             }
-        }
-        .onAppear { snapshots = SharedStorage.shared.snapshots }
-        .navigationTitle("Mind Map")
-    }
-}
-
-struct MindMapView: View {
-    let snapshots: [Snapshot]
-
-    var body: some View {
-        ScrollView([.horizontal, .vertical]) {
-            ZStack {
-                // Draw edges
-                ForEach(snapshots) { snap in
-                    if let parentId = snap.parentId,
-                       let parent = snapshots.first(where: { $0.id == parentId }) {
-                        let from = nodePos(for: parent, in: snapshots)
-                        let to   = nodePos(for: snap,   in: snapshots)
-                        Path { p in
-                            p.move(to: from)
-                            p.addLine(to: to)
-                        }
-                        .stroke(Color.secondary.opacity(0.3), lineWidth: 1)
-                    }
-                }
-                // Draw nodes
-                ForEach(Array(snapshots.enumerated()), id: \.element.id) { i, snap in
-                    let pos = nodePos(for: snap, in: snapshots)
-                    VStack(spacing: 4) {
-                        Circle()
-                            .fill(llmColor(snap.llmSource))
-                            .frame(width: 12, height: 12)
-                        Text(snap.title)
-                            .font(.system(size: 9))
-                            .foregroundStyle(.secondary)
-                            .lineLimit(2)
-                            .frame(width: 80)
-                            .multilineTextAlignment(.center)
-                    }
-                    .position(pos)
-                }
-            }
-            .frame(width: 600, height: 400)
-        }
-        .background(Color(uiColor: .systemGroupedBackground))
-    }
-
-    private func nodePos(for snap: Snapshot, in list: [Snapshot]) -> CGPoint {
-        guard let i = list.firstIndex(of: snap) else { return .zero }
-        let cols: CGFloat = 4
-        let col = CGFloat(i % Int(cols))
-        let row = CGFloat(i / Int(cols))
-        return CGPoint(x: 80 + col * 130, y: 60 + row * 100)
-    }
-
-    private func llmColor(_ s: String) -> Color {
-        switch s.lowercased() {
-        case "claude": return .orange
-        case "chatgpt": return .green
-        case "gemini": return .blue
-        default: return .accentColor
+            SharedStorage.shared.updatePrompt(prompt)
         }
     }
 }
@@ -460,7 +397,7 @@ struct SettingsTab: View {
                         Button { Task { try? await drive.connect() } } label: {
                             Label("Connect Google Drive", systemImage: "icloud.and.arrow.up")
                         }
-                        Text("Reads your existing SessionPort backups. Scope: drive.file only.")
+                        Text("Reads your SessionPort backups. Scope: drive.file only.")
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
@@ -472,7 +409,7 @@ struct SettingsTab: View {
                         Text(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0")
                             .foregroundStyle(.secondary)
                     }
-                    Link(destination: URL(string: "https://github.com/Den1style/sessionport")!) {
+                    Link(destination: URL(string: "https://github.com/Den1style/sessionport-ios")!) {
                         Label("GitHub", systemImage: "safari")
                     }
                     Link(destination: URL(string: "https://t.me/SessionPort")!) {
@@ -488,7 +425,7 @@ struct SettingsTab: View {
     }
 }
 
-// MARK: - Shared UI components
+// MARK: - Shared UI
 
 struct SyncBanner: View {
     @ObservedObject var drive: GoogleDriveService
@@ -549,8 +486,14 @@ struct SnapshotListRow: View {
             if !snapshot.goal.isEmpty {
                 Text(snapshot.goal).font(.system(size: 13)).foregroundStyle(.secondary).lineLimit(2)
             }
-            Text(snapshot.createdAt, format: .dateTime.month(.abbreviated).day().hour().minute())
-                .font(.system(size: 11)).foregroundStyle(.tertiary)
+            HStack(spacing: 8) {
+                Text(snapshot.createdAt, format: .dateTime.month(.abbreviated).day().hour().minute())
+                    .font(.system(size: 11)).foregroundStyle(.tertiary)
+                if !snapshot.attachedFiles.isEmpty {
+                    Text("📎 \(snapshot.attachedFiles.count)")
+                        .font(.system(size: 11)).foregroundStyle(.secondary)
+                }
+            }
         }
         .padding(.vertical, 2)
     }
