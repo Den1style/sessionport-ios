@@ -2,6 +2,7 @@ import Foundation
 import AuthenticationServices
 import Security
 import UIKit
+import CryptoKit
 
 // Google OAuth 2.0 via ASWebAuthenticationSession — no external SDK.
 // Scope: drive.file (only files this app creates).
@@ -43,7 +44,13 @@ final class GoogleDriveService: ObservableObject {
     // MARK: - Connect
 
     func connect() async throws {
-        let authURL = buildAuthURL()
+        // PKCE: generate code_verifier + code_challenge (RFC 7636)
+        let codeVerifier  = generateCodeVerifier()
+        let codeChallenge = codeChallenge(from: codeVerifier)
+        // State: CSRF protection (RFC 6749 §10.12)
+        let state = UUID().uuidString
+
+        let authURL = buildAuthURL(codeChallenge: codeChallenge, state: state)
 
         // @MainActor guarantees we're on the main thread — safe to read UIApplication
         guard let anchor = UIApplication.shared.connectedScenes
@@ -63,6 +70,11 @@ final class GoogleDriveService: ObservableObject {
                       let code = items.first(where: { $0.name == "code" })?.value,
                       !code.isEmpty
                 else { cont.resume(throwing: DriveError.noAuthCode); return }
+                // Verify state to prevent CSRF
+                let returnedState = items.first(where: { $0.name == "state" })?.value
+                guard returnedState == state else {
+                    cont.resume(throwing: DriveError.stateMismatch); return
+                }
                 cont.resume(returning: code)
             }
             session.presentationContextProvider = WindowAnchorProvider(window: anchor)
@@ -70,7 +82,7 @@ final class GoogleDriveService: ObservableObject {
             session.start()
         }
 
-        let tokens = try await exchangeCode(code)
+        let tokens = try await exchangeCode(code, codeVerifier: codeVerifier)
         try saveRefreshToken(tokens.refreshToken)
         accessToken = tokens.accessToken
         tokenExpiry = Date().addingTimeInterval(Double(tokens.expiresIn) - 60)
@@ -135,17 +147,40 @@ final class GoogleDriveService: ObservableObject {
         return try await task.value
     }
 
+    // MARK: - PKCE helpers (RFC 7636)
+
+    private func generateCodeVerifier() -> String {
+        var bytes = [UInt8](repeating: 0, count: 32)
+        _ = SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes)
+        return Data(bytes).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .trimmingCharacters(in: CharacterSet(charactersIn: "="))
+    }
+
+    private func codeChallenge(from verifier: String) -> String {
+        let hash = SHA256.hash(data: Data(verifier.utf8))
+        return Data(hash).base64EncodedString()
+            .replacingOccurrences(of: "+", with: "-")
+            .replacingOccurrences(of: "/", with: "_")
+            .trimmingCharacters(in: CharacterSet(charactersIn: "="))
+    }
+
     // MARK: - OAuth
 
-    private func buildAuthURL() -> URL {
+    private func buildAuthURL(codeChallenge: String, state: String) -> URL {
+        // These are compile-time constants — force unwrap is safe
         var c = URLComponents(string: "https://accounts.google.com/o/oauth2/v2/auth")!
         c.queryItems = [
-            .init(name: "client_id",     value: kClientID),
-            .init(name: "redirect_uri",  value: kRedirectURI),
-            .init(name: "response_type", value: "code"),
-            .init(name: "scope",         value: kScope),
-            .init(name: "access_type",   value: "offline"),
-            .init(name: "prompt",        value: "consent"),
+            .init(name: "client_id",             value: kClientID),
+            .init(name: "redirect_uri",           value: kRedirectURI),
+            .init(name: "response_type",          value: "code"),
+            .init(name: "scope",                  value: kScope),
+            .init(name: "access_type",            value: "offline"),
+            .init(name: "prompt",                 value: "consent"),
+            .init(name: "state",                  value: state),
+            .init(name: "code_challenge",         value: codeChallenge),
+            .init(name: "code_challenge_method",  value: "S256"),
         ]
         return c.url!
     }
@@ -170,10 +205,14 @@ final class GoogleDriveService: ObservableObject {
         }
     }
 
-    private func exchangeCode(_ code: String) async throws -> Tokens {
+    private func exchangeCode(_ code: String, codeVerifier: String) async throws -> Tokens {
+        // Include code_verifier to complete PKCE flow
         let body = formBody([
-            "code": code, "client_id": kClientID,
-            "redirect_uri": kRedirectURI, "grant_type": "authorization_code",
+            "code":          code,
+            "client_id":     kClientID,
+            "redirect_uri":  kRedirectURI,
+            "grant_type":    "authorization_code",
+            "code_verifier": codeVerifier,
         ])
         return try await postForm("https://oauth2.googleapis.com/token", body: body, as: Tokens.self)
     }
@@ -312,10 +351,12 @@ final class GoogleDriveService: ObservableObject {
 enum DriveError: LocalizedError {
     case noAuthCode, notConnected, folderCreationFailed
     case invalidFileID, fileTooLarge, downloadFailed, apiError, authFailed, keychainFailed
+    case stateMismatch  // CSRF protection
 
     var errorDescription: String? {
         switch self {
         case .noAuthCode:           return "Authorization failed"
+        case .stateMismatch:        return "Authorization state mismatch — possible CSRF attack"
         case .notConnected:         return "Not connected to Google Drive"
         case .folderCreationFailed: return "Failed to create backup folder"
         case .invalidFileID:        return "Invalid file ID"

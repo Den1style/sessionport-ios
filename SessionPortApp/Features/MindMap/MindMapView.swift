@@ -186,7 +186,7 @@ struct MapInfoPanel: View {
             }
 
             Button {
-                UIPasteboard.general.string = snapshot.contextText()
+                copyWithExpiration(snapshot.contextText())
                 showCopied = true
                 Task { try? await Task.sleep(for: .seconds(1.5)); showCopied = false }
             } label: {

@@ -79,13 +79,13 @@ struct SnapshotDetailView: View {
 
             Section {
                 Button {
-                    UIPasteboard.general.string = snapshot.contextText()
+                    copyWithExpiration(snapshot.contextText())
                     showCopied = true
                 } label: {
                     Label("Копировать контекст + файлы", systemImage: "doc.on.clipboard")
                 }
                 Button {
-                    UIPasteboard.general.string = snapshot.contextText(includeFiles: false)
+                    copyWithExpiration(snapshot.contextText(includeFiles: false))
                     showCopied = true
                 } label: {
                     Label("Только контекст", systemImage: "doc.on.doc")

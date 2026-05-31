@@ -46,6 +46,13 @@
         </dict>
     </array>
 
+    <!-- App Transport Security — explicit HTTPS enforcement -->
+    <key>NSAppTransportSecurity</key>
+    <dict>
+        <key>NSAllowsArbitraryLoads</key>
+        <false/>
+    </dict>
+
     <!-- Privacy descriptions -->
     <key>NSUserTrackingUsageDescription</key>
     <string>SessionPort does not track you.</string>

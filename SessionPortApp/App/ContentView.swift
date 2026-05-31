@@ -262,6 +262,10 @@ struct ExportView: View {
         try? json.write(to: url, atomically: true, encoding: .utf8)
         let av = UIActivityViewController(activityItems: [url], applicationActivities: nil)
         // Use topMostViewController so sheet/modal stacks are handled correctly
+        av.completionWithItemsHandler = { _, _, _, _ in
+            // Secure deletion of temp export file after sharing completes
+            try? FileManager.default.removeItem(at: url)
+        }
         if let root = UIApplication.shared.connectedScenes
             .compactMap({ $0 as? UIWindowScene })
             .flatMap({ $0.windows })
@@ -483,7 +487,7 @@ struct PromptDetailView: View {
 
             Section {
                 Button {
-                    UIPasteboard.general.string = resolved
+                    copyWithExpiration(resolved)
                     showCopied = true
                     Task { try? await Task.sleep(for: .seconds(1.5)); withAnimation { showCopied = false } }
                 } label: {
