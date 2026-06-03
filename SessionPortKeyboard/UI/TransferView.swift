@@ -71,6 +71,30 @@ struct TransferView: View {
                     ) { handleStep(mode: mode, index: i, currentStep: step) }
                 }
             }
+
+            // Status hint — prevents premature capture (empty template issue)
+            // User must wait for LLM to respond before tapping the next step
+            if step < mode.steps.count {
+                let hints: [String] = mode == .simple
+                    ? [
+                        "↑ Вставлено — отправь LLM и дождись ответа",
+                        "↑ Вставлено — скопируй JSON из ответа LLM",
+                        "Вставит сохранённый снэпшот в новый LLM",
+                      ]
+                    : [
+                        "↑ Вставлено — отправь и дождись ответа",
+                        "↑ Вставлено — проверь 6 якорей с LLM",
+                        "↑ Вставлено — скопируй JSON из ответа LLM",
+                        "Вставит сохранённый снэпшот в новый LLM",
+                      ]
+                if step < hints.count {
+                    Text(hints[step])
+                        .font(.system(size: 9.5, design: .monospaced))
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.horizontal, 4)
+                }
+            }
         }
     }
 
