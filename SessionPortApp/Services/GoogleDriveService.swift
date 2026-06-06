@@ -107,7 +107,7 @@ final class GoogleDriveService: ObservableObject {
         lastSync = nil
     }
 
-    // MARK: - Sync
+    // MARK: - Sync (restore latest backup from Drive)
 
     func sync() async {
         guard isConnected, !isSyncing else { return }
@@ -127,6 +127,64 @@ final class GoogleDriveService: ObservableObject {
         } catch {
             syncError = error.localizedDescription
         }
+    }
+
+    // MARK: - Backup (upload current snapshots to Drive)
+
+    func backup() async {
+        guard isConnected, !isSyncing else { return }
+        isSyncing = true
+        syncError = nil
+        defer { isSyncing = false }
+        do {
+            let token    = try await validToken()
+            let folderID = try await ensureFolder(token: token)
+            let data     = try makeBackupData()
+            try await uploadBackup(token: token, folderID: folderID, data: data)
+            SharedStorage.shared.driveLastSync = Date()
+            lastSync = Date()
+        } catch {
+            syncError = error.localizedDescription
+        }
+    }
+
+    private func makeBackupData() throws -> Data {
+        let enc = JSONEncoder()
+        enc.dateEncodingStrategy = .iso8601
+        enc.outputFormatting = .prettyPrinted
+        let snapsData = try enc.encode(SharedStorage.shared.snapshots)
+        guard let snapsJSON = try? JSONSerialization.jsonObject(with: snapsData) else {
+            throw DriveError.apiError
+        }
+        let payload: [String: Any] = [
+            "schema_version": 2,
+            "app": "SessionPort",
+            "backed_up_at": ISO8601DateFormatter().string(from: Date()),
+            "snapshots": snapsJSON,
+        ]
+        return try JSONSerialization.data(withJSONObject: payload)
+    }
+
+    private func uploadBackup(token: String, folderID: String, data: Data) async throws {
+        let filename  = "sessionport-backup-\(Int(Date().timeIntervalSince1970)).json"
+        let boundary  = UUID().uuidString.replacingOccurrences(of: "-", with: "")
+        let metaJSON  = try JSONSerialization.data(withJSONObject: ["name": filename, "parents": [folderID]])
+
+        var body = Data()
+        func s(_ str: String) { body.append(Data(str.utf8)) }
+        s("--\(boundary)\r\nContent-Type: application/json; charset=UTF-8\r\n\r\n")
+        body.append(metaJSON)
+        s("\r\n--\(boundary)\r\nContent-Type: application/json\r\n\r\n")
+        body.append(data)
+        s("\r\n--\(boundary)--")
+
+        var req = URLRequest(url: URL(string: "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart&fields=id")!)
+        req.httpMethod = "POST"
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        req.setValue("multipart/related; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        req.httpBody = body
+        let (_, resp) = try await URLSession.shared.data(for: req)
+        guard (resp as? HTTPURLResponse)?.statusCode == 200 else { throw DriveError.uploadFailed }
     }
 
     // MARK: - Token
@@ -350,8 +408,8 @@ final class GoogleDriveService: ObservableObject {
 
 enum DriveError: LocalizedError {
     case noAuthCode, notConnected, folderCreationFailed
-    case invalidFileID, fileTooLarge, downloadFailed, apiError, authFailed, keychainFailed
-    case stateMismatch  // CSRF protection
+    case invalidFileID, fileTooLarge, downloadFailed, uploadFailed, apiError, authFailed, keychainFailed
+    case stateMismatch
 
     var errorDescription: String? {
         switch self {
@@ -362,6 +420,7 @@ enum DriveError: LocalizedError {
         case .invalidFileID:        return "Invalid file ID"
         case .fileTooLarge:         return "Backup file exceeds 10 MB limit"
         case .downloadFailed:       return "Download failed"
+        case .uploadFailed:         return "Upload failed"
         case .apiError:             return "Drive API error"
         case .authFailed:           return "Authentication failed"
         case .keychainFailed:       return "Failed to store credentials securely"

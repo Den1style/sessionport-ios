@@ -38,6 +38,9 @@ targets:
     dependencies:
       - sdk: StoreKit.framework
       - sdk: AuthenticationServices.framework
+      - target: SessionPortKeyboard
+        embed: true
+        codeSign: true
     scheme:
       testTargets:
         - SessionPortTests

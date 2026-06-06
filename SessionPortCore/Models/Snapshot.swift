@@ -101,11 +101,108 @@ struct Snapshot: Codable, Identifiable, Hashable {
 // MARK: - Parsing
 
 extension Snapshot {
+    // Parses backup JSON. Handles schema_version 1 (browser ext format) and
+    // schema_version 2 (iOS Codable format produced by ExportView).
     static func fromBackupJSON(_ data: Data) -> [Snapshot] {
         guard data.count <= 10 * 1024 * 1024,
               let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-              let snaps = obj["snapshots"] as? [[String: Any]] else { return [] }
+              let snapsRaw = obj["snapshots"] else { return [] }
+
+        let version = obj["schema_version"] as? Int ?? 1
+
+        if version >= 2, let arr = snapsRaw as? [[String: Any]],
+           let arrData = try? JSONSerialization.data(withJSONObject: arr) {
+            let dec = JSONDecoder()
+            dec.dateDecodingStrategy = .iso8601
+            if let decoded = try? dec.decode([Snapshot].self, from: arrData) {
+                return Array(decoded.prefix(500))
+            }
+        }
+
+        guard let snaps = snapsRaw as? [[String: Any]] else { return [] }
         return snaps.prefix(500).compactMap { fromRawDict($0) }
+    }
+
+    // Parses LLM output JSON (iOS SessionPort schema v1.1 with meta/dna/decisions/state).
+    static func fromLLMOutput(_ text: String, llmSource: String = "") -> Snapshot? {
+        let jsonStr = extractJSONString(from: text)
+        guard let data = jsonStr.data(using: .utf8),
+              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+
+        let meta  = obj["meta"]  as? [String: Any]
+        let dna   = obj["dna"]   as? [String: Any]
+        let st    = obj["state"] as? [String: Any]
+        let decisionsArr = obj["decisions"] as? [[String: Any]] ?? []
+
+        guard let id = (meta?["transfer_id"] as? String)?.truncated(kMaxShortStr), !id.isEmpty else { return nil }
+
+        // Partition with no data loss: only explicit "rejected" goes to rejected;
+        // everything else (accepted, rule, missing/unknown type) → accepted.
+        func describe(_ d: [String: Any]) -> String? {
+            guard let what = (d["what"] as? String)?.truncated(kMaxShortStr), !what.isEmpty else { return nil }
+            if let why = (d["why"] as? String), !why.isEmpty { return "\(what) — \(why)" }
+            return what
+        }
+        let accepted = decisionsArr
+            .filter { ($0["type"] as? String) != "rejected" }
+            .compactMap(describe)
+        let rejected = decisionsArr
+            .filter { ($0["type"] as? String) == "rejected" }
+            .compactMap(describe)
+
+        let goal        = (dna?["goal"]         as? String)?.truncated(kMaxLongStr)  ?? ""
+        let currentTask = (st?["current_task"]  as? String)?.truncated(kMaxShortStr) ?? ""
+        let nextStep    = (st?["next_step"]      as? String)?.truncated(kMaxLongStr)  ?? ""
+        let lastActions = (st?["last_actions"]   as? [String]) ?? []
+        let stateStr    = ([currentTask] + lastActions.prefix(3))
+            .filter { !$0.isEmpty }.joined(separator: " · ").truncated(kMaxShortStr)
+
+        let project = (meta?["project"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+
+        let title: String
+        if !goal.isEmpty { title = String(goal.prefix(80)) }
+        else if let p = project { title = "[\(p)] Context" }
+        else { title = "Context" }
+
+        var createdAt = Date()
+        if let dateStr = meta?["date"] as? String {
+            let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
+            createdAt = f.date(from: dateStr) ?? Date()
+        }
+
+        return Snapshot(
+            id: id,
+            title: title,
+            goal: goal,
+            decisions: Array(accepted.prefix(kMaxArrayLen)),
+            rejected: Array(rejected.prefix(kMaxArrayLen)),
+            state: stateStr,
+            nextStep: nextStep,
+            llmSource: llmSource,
+            project: project,
+            createdAt: createdAt
+        )
+    }
+
+    // Extracts JSON string from LLM response text (handles markdown blocks and SP markers).
+    static func extractJSONString(from text: String) -> String {
+        if let r1 = text.range(of: "---BEGIN CONTEXT---"),
+           let r2 = text.range(of: "---END CONTEXT---", range: r1.upperBound..<text.endIndex) {
+            return String(text[r1.upperBound..<r2.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let r1 = text.range(of: "```json"),
+           let r2 = text.range(of: "```", range: r1.upperBound..<text.endIndex) {
+            return String(text[r1.upperBound..<r2.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+        }
+        if let r1 = text.range(of: "```"),
+           let r2 = text.range(of: "```", range: r1.upperBound..<text.endIndex) {
+            let candidate = String(text[r1.upperBound..<r2.lowerBound]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if candidate.hasPrefix("{") { return candidate }
+        }
+        if let start = text.firstIndex(of: "{"), let end = text.lastIndex(of: "}") {
+            return String(text[start...end])
+        }
+        return text
     }
 
     static func fromRawDict(_ d: [String: Any]) -> Snapshot? {

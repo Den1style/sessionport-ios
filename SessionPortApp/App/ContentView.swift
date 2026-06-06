@@ -247,12 +247,16 @@ struct ExportView: View {
 
     private func exportSelected() {
         let toExport = selected.isEmpty ? snapshots : snapshots.filter { selected.contains($0.id) }
+        let enc = JSONEncoder()
+        enc.dateEncodingStrategy = .iso8601
+        enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+        guard let snapsData = try? enc.encode(toExport),
+              let snapsJSON = try? JSONSerialization.jsonObject(with: snapsData) else { return }
         let payload: [String: Any] = [
-            "schema_version": 1,
-            "snapshots": toExport.map { snap -> [String: Any] in
-                ["transfer_id": snap.id, "title": snap.title,
-                 "llm_source": snap.llmSource, "project": snap.project ?? ""]
-            }
+            "schema_version": 2,
+            "app": "SessionPort",
+            "exported_at": ISO8601DateFormatter().string(from: Date()),
+            "snapshots": snapsJSON,
         ]
         guard let data = try? JSONSerialization.data(withJSONObject: payload, options: .prettyPrinted),
               let json = String(data: data, encoding: .utf8) else { return }
@@ -575,9 +579,16 @@ struct SettingsTab: View {
                                 Text(last, style: .relative).foregroundStyle(.secondary)
                             }
                         }
+                        Button { Task { await drive.backup() } } label: {
+                            HStack {
+                                Label("Создать резервную копию", systemImage: "icloud.and.arrow.up")
+                                if drive.isSyncing { Spacer(); ProgressView().scaleEffect(0.8) }
+                            }
+                        }
+                        .disabled(drive.isSyncing)
                         Button { Task { await drive.sync() } } label: {
                             HStack {
-                                Label("Синхронизировать", systemImage: "arrow.clockwise")
+                                Label("Восстановить из Drive", systemImage: "icloud.and.arrow.down")
                                 if drive.isSyncing { Spacer(); ProgressView().scaleEffect(0.8) }
                             }
                         }

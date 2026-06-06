@@ -12,7 +12,6 @@ struct SessionPortApp: App {
             ContentView()
                 .environmentObject(drive)
                 .environmentObject(store)
-                .preferredColorScheme(.light)
         }
         // Background screenshot protection (MASVS-STORAGE-2 / MASTG-TEST-0058):
         // blur sensitive content when app moves to background so it won't

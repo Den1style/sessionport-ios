@@ -3,7 +3,7 @@ import SwiftUI
 struct HistoryView: View {
     let onLoad: (Snapshot) -> Void
 
-    @State private var snapshots = SharedStorage.shared.snapshots
+    @State private var snapshots = SharedStorage.shared.activeSnapshots
     @State private var selected: Snapshot? = nil
 
     var body: some View {
@@ -15,8 +15,7 @@ struct HistoryView: View {
             }
         }
         .onAppear {
-            // Reload so keyboard sees snapshots saved since it was opened
-            snapshots = SharedStorage.shared.snapshots
+            snapshots = SharedStorage.shared.activeSnapshots
         }
     }
 

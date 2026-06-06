@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 struct TransferView: View {
     @Binding var flowState: TransferFlowState
@@ -108,30 +109,21 @@ struct TransferView: View {
         case .simple:
             switch index {
             case 0:
-                // Step 1: insert SIMPLE_ANALYZE prompt → user sends to LLM
                 onInsertText(analyzePrompt)
                 advance(mode: mode, from: index)
             case 1:
-                // Step 2: insert SIMPLE_CONFIRM prompt → user sends, copies JSON from LLM response
                 onInsertText(confirmPrompt)
                 advance(mode: mode, from: index)
             default:
-                // Step 3: load last saved snapshot into new LLM
-                guard storage.canAddSnapshot else { return }
-                let snap = makeSnapshot()
-                storage.addSnapshot(snap)
-                if let latest = storage.snapshots.first { onInsertText(latest.contextText()) }
-                flowState = .modeSelection
+                loadFromClipboardAndInsert(storage: storage)
             }
 
         case .extended:
             switch index {
             case 0:
-                // Step 1: preparation prompt (same as analyze)
                 onInsertText(analyzePrompt)
                 advance(mode: mode, from: index)
             case 1:
-                // Step 2: anchor validation — copy analyze prompt again for deeper pass
                 onInsertText("""
                 Проверь 6 якорей переноса SessionPort:
                 1. ЦЕЛЬ — сформулирована как инструкция-продолжение?
@@ -146,18 +138,37 @@ struct TransferView: View {
                 """)
                 advance(mode: mode, from: index)
             case 2:
-                // Step 3: generate JSON snapshot
                 onInsertText(confirmPrompt)
                 advance(mode: mode, from: index)
             default:
-                // Step 4: load into new LLM
-                guard storage.canAddSnapshot else { return }
-                let snap = makeSnapshot()
-                storage.addSnapshot(snap)
-                if let latest = storage.snapshots.first { onInsertText(latest.contextText()) }
-                flowState = .modeSelection
+                loadFromClipboardAndInsert(storage: storage)
             }
         }
+    }
+
+    // Reads clipboard JSON (from LLM response), saves snapshot, inserts its context.
+    private func loadFromClipboardAndInsert(storage: SharedStorage) {
+        guard storage.canAddSnapshot else { return }
+        let src = llmName.isEmpty ? "unknown" : llmName.lowercased()
+        let clipText = UIPasteboard.general.string ?? ""
+        var snap: Snapshot
+        if !clipText.isEmpty {
+            if var parsed = Snapshot.fromLLMOutput(clipText, llmSource: src) {
+                parsed.parentId = storage.activeSnapshots.first?.id
+                snap = parsed
+            } else if var parsed = Snapshot.fromBackupJSON(Data(clipText.utf8)).first {
+                if parsed.llmSource.isEmpty { parsed.llmSource = src }
+                parsed.parentId = storage.activeSnapshots.first?.id
+                snap = parsed
+            } else {
+                snap = makeSnapshot()
+            }
+        } else {
+            snap = makeSnapshot()
+        }
+        storage.addSnapshot(snap)
+        onInsertText(snap.contextText())
+        flowState = .modeSelection
     }
 
     private func advance(mode: TransferMode, from i: Int) {
@@ -172,7 +183,7 @@ struct TransferView: View {
     private func makeSnapshot() -> Snapshot {
         Snapshot(
             id: UUID().uuidString,
-            parentId: SharedStorage.shared.snapshots.first?.id,
+            parentId: SharedStorage.shared.activeSnapshots.first?.id,
             title: "Context \(Date().formatted(date: .abbreviated, time: .shortened))",
             goal: "", decisions: [], rejected: [],
             state: "ACTIVE", nextStep: "",
