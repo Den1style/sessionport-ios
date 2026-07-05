@@ -25,6 +25,13 @@ struct AttachedFile: Codable, Identifiable, Hashable {
     }
 }
 
+// validation block of the v1.1 protocol — questions probe real decisions so a
+// wrong or partial restore yields a visibly wrong answer (see extension v1.0.3)
+struct SnapshotValidation: Codable, Hashable {
+    var questions: [String]
+    var expected: [String]
+}
+
 struct Snapshot: Codable, Identifiable, Hashable {
     var id: String
     var parentId: String?
@@ -39,6 +46,14 @@ struct Snapshot: Codable, Identifiable, Hashable {
     var createdAt: Date
     var deletedAt: Date?       // non-nil → in Trash
     var attachedFiles: [AttachedFile]
+
+    // ── Rich v1.1 fields (extension parity) — optional for App Group back-compat ──
+    var trajectory: String?           // dna.trajectory — where the project is heading
+    var constraints: [String]         // dna.constraints — global restrictions
+    var instructions: [String]        // behavioral rules for the new model ("If X → Y")
+    var openThreads: [String]         // open_threads — genuinely unresolved questions
+    var artifacts: [String]           // state.artifacts — files/functions/concepts in play
+    var validation: SnapshotValidation?
 
     var isTrashed: Bool { deletedAt != nil }
 
@@ -55,13 +70,22 @@ struct Snapshot: Codable, Identifiable, Hashable {
         project: String? = nil,
         createdAt: Date = Date(),
         deletedAt: Date? = nil,
-        attachedFiles: [AttachedFile] = []
+        attachedFiles: [AttachedFile] = [],
+        trajectory: String? = nil,
+        constraints: [String] = [],
+        instructions: [String] = [],
+        openThreads: [String] = [],
+        artifacts: [String] = [],
+        validation: SnapshotValidation? = nil
     ) {
         self.id = id; self.parentId = parentId; self.title = title
         self.goal = goal; self.decisions = decisions; self.rejected = rejected
         self.state = state; self.nextStep = nextStep; self.llmSource = llmSource
         self.project = project; self.createdAt = createdAt
         self.deletedAt = deletedAt; self.attachedFiles = attachedFiles
+        self.trajectory = trajectory; self.constraints = constraints
+        self.instructions = instructions; self.openThreads = openThreads
+        self.artifacts = artifacts; self.validation = validation
     }
 
     enum CodingKeys: String, CodingKey {
@@ -70,6 +94,58 @@ struct Snapshot: Codable, Identifiable, Hashable {
         case nextStep = "next_step"; case llmSource = "llm_source"
         case createdAt = "created_at"; case deletedAt = "deleted_at"
         case attachedFiles = "attached_files"
+        case trajectory, constraints, instructions, artifacts, validation
+        case openThreads = "open_threads"
+    }
+
+    // Custom decode: rich fields are decodeIfPresent so snapshots stored in the
+    // App Group BEFORE this schema (and schema v2 exports without them) still load.
+    init(from decoder: Decoder) throws {
+        let c = try decoder.container(keyedBy: CodingKeys.self)
+        id            = try c.decode(String.self, forKey: .id)
+        parentId      = try c.decodeIfPresent(String.self, forKey: .parentId)
+        title         = try c.decodeIfPresent(String.self, forKey: .title) ?? ""
+        goal          = try c.decodeIfPresent(String.self, forKey: .goal) ?? ""
+        decisions     = try c.decodeIfPresent([String].self, forKey: .decisions) ?? []
+        rejected      = try c.decodeIfPresent([String].self, forKey: .rejected) ?? []
+        state         = try c.decodeIfPresent(String.self, forKey: .state) ?? ""
+        nextStep      = try c.decodeIfPresent(String.self, forKey: .nextStep) ?? ""
+        llmSource     = try c.decodeIfPresent(String.self, forKey: .llmSource) ?? ""
+        project       = try c.decodeIfPresent(String.self, forKey: .project)
+        createdAt     = try c.decodeIfPresent(Date.self, forKey: .createdAt) ?? Date()
+        deletedAt     = try c.decodeIfPresent(Date.self, forKey: .deletedAt)
+        attachedFiles = try c.decodeIfPresent([AttachedFile].self, forKey: .attachedFiles) ?? []
+        trajectory    = try c.decodeIfPresent(String.self, forKey: .trajectory)
+        constraints   = try c.decodeIfPresent([String].self, forKey: .constraints) ?? []
+        instructions  = try c.decodeIfPresent([String].self, forKey: .instructions) ?? []
+        openThreads   = try c.decodeIfPresent([String].self, forKey: .openThreads) ?? []
+        artifacts     = try c.decodeIfPresent([String].self, forKey: .artifacts) ?? []
+        validation    = try c.decodeIfPresent(SnapshotValidation.self, forKey: .validation)
+    }
+
+    // Custom encode: rich fields are emitted only when non-empty, so contextText()
+    // for older/simple snapshots stays exactly as compact as before.
+    func encode(to encoder: Encoder) throws {
+        var c = encoder.container(keyedBy: CodingKeys.self)
+        try c.encode(id, forKey: .id)
+        try c.encodeIfPresent(parentId, forKey: .parentId)
+        try c.encode(title, forKey: .title)
+        try c.encode(goal, forKey: .goal)
+        try c.encode(decisions, forKey: .decisions)
+        try c.encode(rejected, forKey: .rejected)
+        try c.encode(state, forKey: .state)
+        try c.encode(nextStep, forKey: .nextStep)
+        try c.encode(llmSource, forKey: .llmSource)
+        try c.encodeIfPresent(project, forKey: .project)
+        try c.encode(createdAt, forKey: .createdAt)
+        try c.encodeIfPresent(deletedAt, forKey: .deletedAt)
+        try c.encode(attachedFiles, forKey: .attachedFiles)
+        if let t = trajectory, !t.isEmpty { try c.encode(t, forKey: .trajectory) }
+        if !constraints.isEmpty  { try c.encode(constraints,  forKey: .constraints) }
+        if !instructions.isEmpty { try c.encode(instructions, forKey: .instructions) }
+        if !openThreads.isEmpty  { try c.encode(openThreads,  forKey: .openThreads) }
+        if !artifacts.isEmpty    { try c.encode(artifacts,    forKey: .artifacts) }
+        try c.encodeIfPresent(validation, forKey: .validation)
     }
 
     // Full context text including file contents
@@ -98,10 +174,9 @@ struct Snapshot: Codable, Identifiable, Hashable {
     }
 
     // Restoration prompt: prepends layered instructions to the raw context payload,
-    // mirroring the browser extension's restore flow. Fields referenced match the
-    // flat snapshot schema actually stored on iOS (goal / decisions / rejected /
-    // state / next_step) — NOT the extension's nested v1.1 keys, which iOS discards
-    // on ingestion. Bilingual via kbLangCode.
+    // mirroring the browser extension's restore flow (v1.0.4 semantics: confirm
+    // goal+next_step first, rely only on snapshot data, honor rejections and
+    // instructions, keep open_threads alive). Bilingual via kbLangCode.
     @MainActor
     func restoreContext(includeFiles: Bool = true) -> String {
         let isEn = SharedStorage.shared.kbLangCode == "en"
@@ -109,20 +184,24 @@ struct Snapshot: Codable, Identifiable, Hashable {
         SessionPort PROTOCOL — CONTEXT RESTORATION.
 
         Read the snapshot and restore the working context:
-        1. goal — accept as the project's identity and continuation instruction
+        1. goal — accept as the project's identity; trajectory (if present) is where it's heading
         2. decisions — settled choices; treat as already agreed
         3. rejected — never suggest these again, no matter how reasonable they look
-        4. state — where we are; next_step is your first action
-        Then continue the work from next_step.
+        4. constraints and instructions (if present) — behavioral rules; follow them from the first reply
+        5. state — where we are; next_step is your first action; open_threads stay live tasks
+        Rely ONLY on snapshot data — if something needed for next_step is missing, ask, don't invent.
+        First confirm in one line: goal + next_step. If validation.questions are present, answer them. Then continue from next_step.
         """ : """
         ПРОТОКОЛ SessionPort — ВОССТАНОВЛЕНИЕ КОНТЕКСТА.
 
         Прочитай слепок и восстанови рабочий контекст:
-        1. goal — прими как идентичность проекта и инструкцию-продолжение
+        1. goal — прими как идентичность проекта; trajectory (если есть) — куда он движется
         2. decisions — принятые решения; считай уже согласованными
         3. rejected — никогда не предлагай это повторно, каким бы разумным оно ни казалось
-        4. state — где мы; next_step — твоё первое действие
-        Затем продолжи работу с next_step.
+        4. constraints и instructions (если есть) — правила поведения; соблюдай с первого ответа
+        5. state — где мы; next_step — твоё первое действие; open_threads — живые задачи
+        Опирайся ТОЛЬКО на данные слепка — если для next_step чего-то не хватает, спроси, не выдумывай.
+        Сначала подтверди одной строкой: goal + next_step. Если есть validation.questions — ответь на них. Затем продолжи с next_step.
         """
         return preamble + "\n\n" + contextText(includeFiles: includeFiles)
     }
@@ -172,19 +251,7 @@ extension Snapshot {
 
         guard let id = (meta?["transfer_id"] as? String)?.truncated(kMaxShortStr), !id.isEmpty else { return nil }
 
-        // Partition with no data loss: only explicit "rejected" goes to rejected;
-        // everything else (accepted, rule, missing/unknown type) → accepted.
-        func describe(_ d: [String: Any]) -> String? {
-            guard let what = (d["what"] as? String)?.truncated(kMaxShortStr), !what.isEmpty else { return nil }
-            if let why = (d["why"] as? String), !why.isEmpty { return "\(what) — \(why)" }
-            return what
-        }
-        let accepted = decisionsArr
-            .filter { ($0["type"] as? String) != "rejected" }
-            .compactMap(describe)
-        let rejected = decisionsArr
-            .filter { ($0["type"] as? String) == "rejected" }
-            .compactMap(describe)
+        let (accepted, rejected) = partitionDecisions(decisionsArr)
 
         let goal        = (dna?["goal"]         as? String)?.truncated(kMaxLongStr)  ?? ""
         let currentTask = (st?["current_task"]  as? String)?.truncated(kMaxShortStr) ?? ""
@@ -205,6 +272,8 @@ extension Snapshot {
             createdAt = parseDateOnly(dateStr) ?? Date()
         }
 
+        let rich = richFields(root: obj, dna: dna, state: st)
+
         return Snapshot(
             id: id,
             title: title,
@@ -215,8 +284,58 @@ extension Snapshot {
             nextStep: nextStep,
             llmSource: llmSource,
             project: project,
-            createdAt: createdAt
+            createdAt: createdAt,
+            trajectory: rich.trajectory,
+            constraints: rich.constraints,
+            instructions: rich.instructions,
+            openThreads: rich.openThreads,
+            artifacts: rich.artifacts,
+            validation: rich.validation
         )
+    }
+
+    // ── Shared v1.1 parsing helpers (used by fromLLMOutput and fromRawDict) ──
+
+    // Partition with no data loss: only explicit "rejected" goes to rejected;
+    // everything else (accepted, rule, missing/unknown type) → accepted.
+    static func partitionDecisions(_ arr: [[String: Any]]) -> (accepted: [String], rejected: [String]) {
+        func describe(_ d: [String: Any]) -> String? {
+            guard let what = (d["what"] as? String)?.truncated(kMaxShortStr), !what.isEmpty else { return nil }
+            if let why = (d["why"] as? String), !why.isEmpty { return "\(what) — \(why)" }
+            return what
+        }
+        let accepted = arr.filter { ($0["type"] as? String) != "rejected" }.compactMap(describe)
+        let rejected = arr.filter { ($0["type"] as? String) == "rejected" }.compactMap(describe)
+        return (accepted, rejected)
+    }
+
+    private struct RichFields {
+        var trajectory: String?
+        var constraints: [String] = []
+        var instructions: [String] = []
+        var openThreads: [String] = []
+        var artifacts: [String] = []
+        var validation: SnapshotValidation?
+    }
+
+    // Extracts the rich v1.1 fields the flat schema previously discarded.
+    private static func richFields(root: [String: Any], dna: [String: Any]?, state st: [String: Any]?) -> RichFields {
+        var r = RichFields()
+        r.trajectory = (dna?["trajectory"] as? String)
+            .flatMap { $0.isEmpty ? nil : $0.truncated(kMaxLongStr) }
+        r.constraints  = strList(dna?["constraints"])
+        r.instructions = strList(root["instructions"])
+        r.openThreads  = strList(root["open_threads"])
+        r.artifacts    = strList(st?["artifacts"])
+        if let v = root["validation"] as? [String: Any] {
+            let q = strList(v["questions"]), e = strList(v["expected"])
+            if !q.isEmpty || !e.isEmpty { r.validation = SnapshotValidation(questions: q, expected: e) }
+        }
+        return r
+    }
+
+    private static func strList(_ any: Any?) -> [String] {
+        ((any as? [String]) ?? []).prefix(kMaxArrayLen).map { $0.truncated(kMaxShortStr) }
     }
 
     private static func decodeObject(_ s: String) -> [String: Any]? {
@@ -261,11 +380,17 @@ extension Snapshot {
     static func fromRawDict(_ d: [String: Any]) -> Snapshot? {
         // Browser records nest the anchors under `payload`; older/flat formats
         // keep them at the top level. Support both.
+        // Two payload dialects exist in the wild:
+        //  • legacy protocol  — core/ledger/runtime
+        //  • v1.1 protocol    — dna/decisions/state (what capture.js stores verbatim)
         let payload = d["payload"] as? [String: Any]
+        let root    = payload ?? d
         let meta    = (payload?["meta"]    as? [String: Any]) ?? (d["meta"]    as? [String: Any])
         let core    = (payload?["core"]    as? [String: Any]) ?? (d["core"]    as? [String: Any])
         let ledger  = (payload?["ledger"]  as? [String: Any]) ?? (d["ledger"]  as? [String: Any])
         let runtime = (payload?["runtime"] as? [String: Any]) ?? (d["runtime"] as? [String: Any])
+        let dna     = (payload?["dna"]     as? [String: Any]) ?? (d["dna"]     as? [String: Any])
+        let st      = (payload?["state"]   as? [String: Any]) ?? (d["state"]   as? [String: Any])
 
         // id: prefer transfer_id (top or meta), fall back to snapshot_id
         let rawId = (d["transfer_id"] as? String)
@@ -273,8 +398,31 @@ extension Snapshot {
             ?? (d["snapshot_id"] as? String)
         guard let id = rawId?.truncated(kMaxShortStr), !id.isEmpty else { return nil }
 
-        let goal    = (core?["intent"] as? String)?.truncated(kMaxLongStr) ?? ""
+        let goal = ((core?["intent"] as? String) ?? (dna?["goal"] as? String))?
+            .truncated(kMaxLongStr) ?? ""
         let project = (meta?["project"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+
+        // decisions/rejected: legacy ledger lists, else partition of v1.1 decisions[]
+        var decisions = strList(ledger?["critical_decisions"])
+        var rejected  = strList(ledger?["veto_list"])
+        if decisions.isEmpty && rejected.isEmpty,
+           let arr = root["decisions"] as? [[String: Any]] {
+            let (a, r) = partitionDecisions(arr)
+            decisions = Array(a.prefix(kMaxArrayLen))
+            rejected  = Array(r.prefix(kMaxArrayLen))
+        }
+
+        // state: legacy runtime.current_status, else v1.1 current_task + last_actions
+        var stateStr = (runtime?["current_status"] as? String)?.truncated(kMaxShortStr) ?? ""
+        if stateStr.isEmpty {
+            let currentTask = (st?["current_task"] as? String)?.truncated(kMaxShortStr) ?? ""
+            let lastActions = (st?["last_actions"] as? [String]) ?? []
+            stateStr = ([currentTask] + lastActions.prefix(3))
+                .filter { !$0.isEmpty }.joined(separator: " · ").truncated(kMaxShortStr)
+        }
+
+        let nextStep = ((runtime?["immediate_next_step"] as? String) ?? (st?["next_step"] as? String))?
+            .truncated(kMaxLongStr) ?? ""
 
         // Title: explicit title if present, else derive from goal/project.
         let title: String
@@ -292,21 +440,27 @@ extension Snapshot {
             ?? (d["llm_source"] as? String)
             ?? (meta?["llm_source"] as? String)
 
+        let rich = richFields(root: root, dna: dna, state: st)
+
         return Snapshot(
             id:        id,
             parentId:  (d["parent_transfer_id"] as? String)?.truncated(kMaxShortStr)
                         ?? (meta?["parent_transfer_id"] as? String)?.truncated(kMaxShortStr),
             title:     title,
             goal:      goal,
-            decisions: ((ledger?["critical_decisions"] as? [String]) ?? [])
-                           .prefix(kMaxArrayLen).map { $0.truncated(kMaxShortStr) },
-            rejected:  ((ledger?["veto_list"] as? [String]) ?? [])
-                           .prefix(kMaxArrayLen).map { $0.truncated(kMaxShortStr) },
-            state:     (runtime?["current_status"] as? String)?.truncated(kMaxShortStr) ?? "",
-            nextStep:  (runtime?["immediate_next_step"] as? String)?.truncated(kMaxLongStr) ?? "",
+            decisions: decisions,
+            rejected:  rejected,
+            state:     stateStr,
+            nextStep:  nextStep,
             llmSource: SnapshotInterchange.normalizeLLM(llmRaw),
             project:   project,
-            createdAt: parseDate(d, meta: meta) ?? Date()
+            createdAt: parseDate(d, meta: meta) ?? Date(),
+            trajectory: rich.trajectory,
+            constraints: rich.constraints,
+            instructions: rich.instructions,
+            openThreads: rich.openThreads,
+            artifacts: rich.artifacts,
+            validation: rich.validation
         )
     }
 

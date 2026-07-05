@@ -45,6 +45,60 @@ import Foundation
         #expect(snaps[0].project == "Proj")
     }
 
+    // capture.js stores the raw v1.1 JSON as `payload` — a browser backup may
+    // contain dna/decisions/state instead of core/ledger/runtime.
+    @Test func parseBrowserBackupWithV11Payload() {
+        let json = """
+        {"schema_version":1,"snapshots":[
+          {"snapshot_id":"pr_v11","transfer_id":"pr_v11","source_host":"chatgpt.com",
+           "created_at":"2026-06-01T10:00:00Z",
+           "payload":{"meta":{"transfer_id":"pr_v11","project":"P"},
+             "dna":{"goal":"Build Y","constraints":["Swift only"],"trajectory":"App Store"},
+             "decisions":[{"what":"use XcodeGen","why":"reproducible","type":"accepted"},
+                          {"what":"CocoaPods","why":"legacy","type":"rejected"}],
+             "state":{"current_task":"tests","next_step":"run CI","last_actions":["merged"],
+                      "artifacts":["project.yml"]},
+             "instructions":["Never suggest CocoaPods"],
+             "open_threads":["keyboard memory limit"],
+             "validation":{"questions":["Which dep manager?"],"expected":["XcodeGen, not CocoaPods"]}}}
+        ]}
+        """.data(using: .utf8)!
+        let snaps = Snapshot.fromBackupJSON(json)
+        #expect(snaps.count == 1)
+        let s = snaps.first
+        #expect(s?.goal == "Build Y")
+        #expect(s?.decisions.first?.contains("XcodeGen") == true)
+        #expect(s?.rejected.first?.contains("CocoaPods") == true)
+        #expect(s?.state.contains("tests") == true)
+        #expect(s?.nextStep == "run CI")
+        #expect(s?.trajectory == "App Store")
+        #expect(s?.constraints == ["Swift only"])
+        #expect(s?.instructions == ["Never suggest CocoaPods"])
+        #expect(s?.openThreads == ["keyboard memory limit"])
+        #expect(s?.artifacts == ["project.yml"])
+        #expect(s?.validation?.questions == ["Which dep manager?"])
+        #expect(s?.llmSource == "chatgpt")
+    }
+
+    // Snapshots stored in the App Group BEFORE the rich-field schema must
+    // still decode (fields default to empty).
+    @Test func decodesPreRichSchemaStoredJSON() throws {
+        let old = """
+        [{"transfer_id":"pr_old","title":"Old","goal":"G","decisions":["d"],
+          "rejected":[],"state":"S","next_step":"N","llm_source":"claude",
+          "created_at":"2026-01-01T00:00:00Z","attached_files":[]}]
+        """.data(using: .utf8)!
+        let dec = JSONDecoder()
+        dec.dateDecodingStrategy = .iso8601
+        let snaps = try dec.decode([Snapshot].self, from: old)
+        #expect(snaps.first?.id == "pr_old")
+        #expect(snaps.first?.trajectory == nil)
+        #expect(snaps.first?.constraints.isEmpty == true)
+        #expect(snaps.first?.instructions.isEmpty == true)
+        #expect(snaps.first?.openThreads.isEmpty == true)
+        #expect(snaps.first?.validation == nil)
+    }
+
     @Test func rejectsOversizedData() {
         let huge = Data(repeating: 65, count: 11 * 1024 * 1024) // 11 MB
         let snaps = Snapshot.fromBackupJSON(huge)
@@ -120,6 +174,27 @@ import Foundation
         #expect(snap?.id == "pr_llm")
         #expect(snap?.goal == "Make it work")
     }
+
+    // Rich v1.1 fields must survive ingestion — they used to be discarded.
+    @Test func preservesRichV11Fields() {
+        let rich = """
+        {"meta":{"transfer_id":"pr_rich"},
+         "dna":{"goal":"G","constraints":["no Electron"],"trajectory":"ship v2"},
+         "decisions":[{"what":"A","why":"w","type":"accepted"}],
+         "state":{"current_task":"t","next_step":"n","artifacts":["Snapshot.swift"]},
+         "instructions":["If X → Y"],
+         "open_threads":["decide storage cap"],
+         "validation":{"questions":["Why no Electron?"],"expected":["banned by constraint"]}}
+        """
+        let snap = Snapshot.fromLLMOutput(rich, llmSource: "claude")
+        #expect(snap?.trajectory == "ship v2")
+        #expect(snap?.constraints == ["no Electron"])
+        #expect(snap?.instructions == ["If X → Y"])
+        #expect(snap?.openThreads == ["decide storage cap"])
+        #expect(snap?.artifacts == ["Snapshot.swift"])
+        #expect(snap?.validation?.questions == ["Why no Electron?"])
+        #expect(snap?.validation?.expected == ["banned by constraint"])
+    }
 }
 
 // MARK: - SnapshotInterchange round-trip (iOS ⇄ browser format parity)
@@ -147,6 +222,34 @@ import Foundation
         #expect(r?.nextStep == "Next")
         #expect(r?.project == "MyProject")
         #expect(r?.llmSource == "claude")
+    }
+
+    @Test func exportThenImportPreservesRichFields() {
+        let original = Snapshot(
+            id: "pr_rich_rt", title: "Rich", goal: "Goal",
+            decisions: ["d1"], rejected: ["v1"],
+            state: "State", nextStep: "Next", llmSource: "claude",
+            createdAt: Date(timeIntervalSince1970: 1_700_000_000),
+            trajectory: "ship v2",
+            constraints: ["Swift only"],
+            instructions: ["If X → Y"],
+            openThreads: ["thread 1"],
+            artifacts: ["a.swift"],
+            validation: SnapshotValidation(questions: ["q1"], expected: ["e1"])
+        )
+        let data = SnapshotInterchange.exportJSON([original])
+        let back = Snapshot.fromBackupJSON(data).first
+
+        #expect(back?.trajectory == "ship v2")
+        #expect(back?.constraints == ["Swift only"])
+        #expect(back?.instructions == ["If X → Y"])
+        #expect(back?.openThreads == ["thread 1"])
+        #expect(back?.artifacts == ["a.swift"])
+        #expect(back?.validation?.questions == ["q1"])
+        #expect(back?.validation?.expected == ["e1"])
+        // legacy anchors still intact
+        #expect(back?.decisions == ["d1"])
+        #expect(back?.rejected == ["v1"])
     }
 
     @Test func exportUsesSchemaVersion1() {

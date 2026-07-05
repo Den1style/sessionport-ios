@@ -36,6 +36,52 @@ struct SnapshotDetailView: View {
                         .foregroundStyle(Color.accentColor, Color.primary)
                 }
             }
+            if let trajectory = snapshot.trajectory, !trajectory.isEmpty {
+                Section("Траектория") {
+                    Label(trajectory, systemImage: "location.north.circle.fill")
+                        .foregroundStyle(.blue, .primary)
+                }
+            }
+            if !snapshot.constraints.isEmpty {
+                Section("Ограничения") {
+                    ForEach(snapshot.constraints, id: \.self) { c in
+                        Label(c, systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange, .primary)
+                    }
+                }
+            }
+            if !snapshot.instructions.isEmpty {
+                Section("Инструкции для модели") {
+                    ForEach(snapshot.instructions, id: \.self) { i in
+                        Label(i, systemImage: "list.bullet.circle.fill")
+                            .foregroundStyle(.purple, .primary)
+                    }
+                }
+            }
+            if !snapshot.openThreads.isEmpty {
+                Section("Открытые вопросы") {
+                    ForEach(snapshot.openThreads, id: \.self) { t in
+                        Label(t, systemImage: "questionmark.circle.fill")
+                            .foregroundStyle(.yellow, .primary)
+                    }
+                }
+            }
+            if !snapshot.artifacts.isEmpty {
+                Section("Артефакты") {
+                    ForEach(snapshot.artifacts, id: \.self) { a in
+                        Label(a, systemImage: "shippingbox.fill")
+                            .foregroundStyle(.brown, .primary)
+                    }
+                }
+            }
+            if let validation = snapshot.validation, !validation.questions.isEmpty {
+                Section("Контрольные вопросы") {
+                    ForEach(validation.questions, id: \.self) { q in
+                        Label(q, systemImage: "checkmark.seal.fill")
+                            .foregroundStyle(.teal, .primary)
+                    }
+                }
+            }
 
             // ── Files (part of this snapshot) ──
             Section {

@@ -26,7 +26,7 @@ enum SnapshotInterchange {
             ]
             if let parent = snap.parentId { meta["parent_transfer_id"] = parent }
 
-            let payload: [String: Any] = [
+            var payload: [String: Any] = [
                 "meta": meta,
                 "core": ["intent": snap.goal],
                 "ledger": [
@@ -39,6 +39,22 @@ enum SnapshotInterchange {
                     "last_3_decisions": Array(snap.decisions.prefix(3)),
                 ],
             ]
+
+            // Rich v1.1 fields — emitted alongside the legacy anchors (only when
+            // present) so both v1.1 readers and legacy readers find their keys.
+            var dna: [String: Any] = [:]
+            if let t = snap.trajectory, !t.isEmpty { dna["trajectory"] = t }
+            if !snap.constraints.isEmpty { dna["constraints"] = snap.constraints }
+            if !dna.isEmpty {
+                dna["goal"] = snap.goal
+                payload["dna"] = dna
+            }
+            if !snap.instructions.isEmpty { payload["instructions"] = snap.instructions }
+            if !snap.openThreads.isEmpty  { payload["open_threads"] = snap.openThreads }
+            if !snap.artifacts.isEmpty    { payload["state"] = ["artifacts": snap.artifacts] }
+            if let v = snap.validation {
+                payload["validation"] = ["questions": v.questions, "expected": v.expected]
+            }
 
             // content_hash over a deterministic payload serialization (matches
             // the extension's sha256(JSON.stringify(payload)) closely enough for dedup)
