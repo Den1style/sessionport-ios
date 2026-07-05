@@ -3,6 +3,8 @@ import Foundation
 private let kMaxShortStr = 500
 private let kMaxLongStr  = 5_000
 private let kMaxArrayLen = 100
+// Raw model JSON kept verbatim — same cap as the extension's MAX_PAYLOAD_BYTES
+private let kMaxRawPayload = 1_000_000
 
 // File attached to a snapshot — stored as base64 in App Group UserDefaults
 struct AttachedFile: Codable, Identifiable, Hashable {
@@ -55,6 +57,11 @@ struct Snapshot: Codable, Identifiable, Hashable {
     var artifacts: [String]           // state.artifacts — files/functions/concepts in play
     var validation: SnapshotValidation?
 
+    // The model's JSON verbatim — full-fidelity source of truth, exactly what
+    // the extension stores as `payload`. Typed fields above are a UI projection;
+    // transfer and export use this when present, so nothing is ever flattened.
+    var rawPayload: String?
+
     var isTrashed: Bool { deletedAt != nil }
 
     init(
@@ -76,7 +83,8 @@ struct Snapshot: Codable, Identifiable, Hashable {
         instructions: [String] = [],
         openThreads: [String] = [],
         artifacts: [String] = [],
-        validation: SnapshotValidation? = nil
+        validation: SnapshotValidation? = nil,
+        rawPayload: String? = nil
     ) {
         self.id = id; self.parentId = parentId; self.title = title
         self.goal = goal; self.decisions = decisions; self.rejected = rejected
@@ -86,6 +94,7 @@ struct Snapshot: Codable, Identifiable, Hashable {
         self.trajectory = trajectory; self.constraints = constraints
         self.instructions = instructions; self.openThreads = openThreads
         self.artifacts = artifacts; self.validation = validation
+        self.rawPayload = rawPayload
     }
 
     enum CodingKeys: String, CodingKey {
@@ -96,6 +105,7 @@ struct Snapshot: Codable, Identifiable, Hashable {
         case attachedFiles = "attached_files"
         case trajectory, constraints, instructions, artifacts, validation
         case openThreads = "open_threads"
+        case rawPayload = "raw_payload"
     }
 
     // Custom decode: rich fields are decodeIfPresent so snapshots stored in the
@@ -121,6 +131,7 @@ struct Snapshot: Codable, Identifiable, Hashable {
         openThreads   = try c.decodeIfPresent([String].self, forKey: .openThreads) ?? []
         artifacts     = try c.decodeIfPresent([String].self, forKey: .artifacts) ?? []
         validation    = try c.decodeIfPresent(SnapshotValidation.self, forKey: .validation)
+        rawPayload    = try c.decodeIfPresent(String.self, forKey: .rawPayload)
     }
 
     // Custom encode: rich fields are emitted only when non-empty, so contextText()
@@ -146,19 +157,29 @@ struct Snapshot: Codable, Identifiable, Hashable {
         if !openThreads.isEmpty  { try c.encode(openThreads,  forKey: .openThreads) }
         if !artifacts.isEmpty    { try c.encode(artifacts,    forKey: .artifacts) }
         try c.encodeIfPresent(validation, forKey: .validation)
+        if let r = rawPayload, !r.isEmpty { try c.encode(r, forKey: .rawPayload) }
     }
 
-    // Full context text including file contents
+    // Full context text including file contents.
+    // When rawPayload is present the model's JSON is inserted VERBATIM —
+    // byte-for-byte what the extension would inject. The typed-field encoding
+    // is only a fallback for snapshots that never had a raw payload.
     func contextText(includeFiles: Bool = true) -> String {
-        let enc = JSONEncoder()
-        enc.outputFormatting = [.prettyPrinted, .sortedKeys]
-        enc.dateEncodingStrategy = .iso8601
+        let json: String
+        if let raw = rawPayload, !raw.isEmpty {
+            json = raw
+        } else {
+            let enc = JSONEncoder()
+            enc.outputFormatting = [.prettyPrinted, .sortedKeys]
+            enc.dateEncodingStrategy = .iso8601
 
-        // Encode without files for the JSON block
-        var copy = self; copy.attachedFiles = []
-        guard let data = try? enc.encode(copy),
-              let json = String(data: data, encoding: .utf8) else {
-            return "---BEGIN CONTEXT---\n\(title)\n---END CONTEXT---"
+            // Encode without files for the JSON block
+            var copy = self; copy.attachedFiles = []
+            guard let data = try? enc.encode(copy),
+                  let str = String(data: data, encoding: .utf8) else {
+                return "---BEGIN CONTEXT---\n\(title)\n---END CONTEXT---"
+            }
+            json = str
         }
 
         var result = "---BEGIN CONTEXT---\n\(json)\n---END CONTEXT---"
@@ -234,15 +255,18 @@ extension Snapshot {
 
     // Parses LLM output JSON (iOS SessionPort schema v1.1 with meta/dna/decisions/state).
     static func fromLLMOutput(_ text: String, llmSource: String = "") -> Snapshot? {
-        let jsonStr = extractJSONString(from: text)
+        var jsonStr = extractJSONString(from: text)
         var parsed = decodeObject(jsonStr)
         if parsed == nil {
             // Chat UIs render the model's straight quotes as smart “curly” ones;
             // text copied by selection then fails strict JSON parsing. Normalize
             // and retry before giving up.
-            parsed = decodeObject(normalizeSmartQuotes(jsonStr))
+            jsonStr = normalizeSmartQuotes(jsonStr)
+            parsed = decodeObject(jsonStr)
         }
         guard let obj = parsed else { return nil }
+        // Keep the exact string that parsed — this is what transfer re-inserts.
+        let raw = jsonStr.count <= kMaxRawPayload ? jsonStr : nil
 
         let meta  = obj["meta"]  as? [String: Any]
         let dna   = obj["dna"]   as? [String: Any]
@@ -290,7 +314,8 @@ extension Snapshot {
             instructions: rich.instructions,
             openThreads: rich.openThreads,
             artifacts: rich.artifacts,
-            validation: rich.validation
+            validation: rich.validation,
+            rawPayload: raw
         )
     }
 
@@ -442,6 +467,14 @@ extension Snapshot {
 
         let rich = richFields(root: root, dna: dna, state: st)
 
+        // Preserve the browser's payload verbatim (re-serialized deterministically).
+        var raw: String? = nil
+        if let payload,
+           let rawData = try? JSONSerialization.data(withJSONObject: payload, options: [.sortedKeys]),
+           let s = String(data: rawData, encoding: .utf8), s.count <= kMaxRawPayload {
+            raw = s
+        }
+
         return Snapshot(
             id:        id,
             parentId:  (d["parent_transfer_id"] as? String)?.truncated(kMaxShortStr)
@@ -460,7 +493,8 @@ extension Snapshot {
             instructions: rich.instructions,
             openThreads: rich.openThreads,
             artifacts: rich.artifacts,
-            validation: rich.validation
+            validation: rich.validation,
+            rawPayload: raw
         )
     }
 

@@ -195,6 +195,26 @@ import Foundation
         #expect(snap?.validation?.questions == ["Why no Electron?"])
         #expect(snap?.validation?.expected == ["banned by constraint"])
     }
+
+    // The model's JSON must be kept VERBATIM and re-inserted verbatim on
+    // transfer — nothing normalized, nothing flattened (extension parity).
+    @Test func rawPayloadIsVerbatimAndUsedForTransfer() {
+        let body = """
+        {"meta":{"transfer_id":"pr_raw"},"dna":{"goal":"G","language":"ru","style":"terse"},
+         "decisions":[{"what":"A","why":"w","context":"only in prod","type":"rule"}],
+         "state":{"current_task":"t","next_step":"n"}}
+        """
+        let snap = Snapshot.fromLLMOutput(body, llmSource: "claude")
+        // stored verbatim
+        #expect(snap?.rawPayload == body.trimmingCharacters(in: .whitespacesAndNewlines))
+        // transfer inserts the raw JSON — fields the typed projection drops
+        // (decisions.context, decisions.type, dna.language, dna.style) survive
+        let ctx = snap?.contextText() ?? ""
+        #expect(ctx.contains("\"context\":\"only in prod\""))
+        #expect(ctx.contains("\"type\":\"rule\""))
+        #expect(ctx.contains("\"language\":\"ru\""))
+        #expect(ctx.contains("\"style\":\"terse\""))
+    }
 }
 
 // MARK: - SnapshotInterchange round-trip (iOS ⇄ browser format parity)
@@ -250,6 +270,27 @@ import Foundation
         // legacy anchors still intact
         #expect(back?.decisions == ["d1"])
         #expect(back?.rejected == ["v1"])
+    }
+
+    // rawPayload → export payload → re-import: fields the typed projection
+    // drops (decisions.context, dna.style) must survive the full cycle.
+    @Test func rawPayloadSurvivesExportImportCycle() {
+        let raw = """
+        {"meta":{"transfer_id":"pr_cycle"},"dna":{"goal":"G","style":"terse"},\
+        "decisions":[{"what":"A","why":"w","context":"prod only","type":"rule"}],\
+        "state":{"current_task":"t","next_step":"n"}}
+        """
+        let snap = Snapshot.fromLLMOutput(raw, llmSource: "claude")
+        #expect(snap != nil)
+
+        let data = SnapshotInterchange.exportJSON([snap!])
+        let back = Snapshot.fromBackupJSON(data).first
+
+        #expect(back?.id == "pr_cycle")
+        #expect(back?.rawPayload?.contains("\"context\":\"prod only\"") == true)
+        #expect(back?.rawPayload?.contains("\"style\":\"terse\"") == true)
+        // and the re-imported snapshot still transfers the full JSON
+        #expect(back?.contextText().contains("prod only") == true)
     }
 
     @Test func exportUsesSchemaVersion1() {

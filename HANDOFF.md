@@ -1,7 +1,9 @@
-# HANDOFF — что доделать на Mac (после коммита a7930e1)
+# HANDOFF — что доделать на Mac
 
-> Контекст: на Windows-машине смержена ветка `sync-june` и выполнен **пункт 3
-> архитектурного плана** — схема `Snapshot` расширена rich-полями v1.1.
+> Контекст: на Windows-машине смержена ветка `sync-june`, выполнен **пункт 3
+> архитектурного плана** (rich-поля v1.1 в схеме Snapshot) и добавлен
+> **rawPayload** — сырой JSON модели хранится дословно, как `payload`
+> в расширении; перенос вставляет его байт-в-байт, ничего не сплющивается.
 > Код написан и вычитан, но **НЕ собирался** — на Windows нет Swift-компилятора.
 > Этот файл — чеклист для Mac.
 
@@ -40,6 +42,14 @@ xcodebuild test -scheme SessionPort -destination 'platform=iOS Simulator,name=iP
 - `restoreContext` поднят до семантики расширения v1.0.4: подтверждение
   goal+next_step одной строкой, «не выдумывай — спроси», constraints/instructions
   с первого ответа, open_threads как живые задачи, ответ на validation.questions.
+- **`rawPayload: String?`** (JSON-ключ `raw_payload`) — модельный JSON дословно:
+  - `fromLLMOutput` сохраняет строку, которая успешно распарсилась (cap 1 МБ);
+  - `contextText()` при переносе вставляет raw как есть; типизированные поля —
+    только UI-проекция и fallback для старых снапшотов без raw;
+  - `fromRawDict` сохраняет `payload` браузерного бэкапа (sortedKeys);
+  - `exportJSON` использует raw как payload (+ legacy-якоря, если в raw их нет).
+  Итог: `decisions.context`, `type:"rule"`, `dna.language/style`, `last_actions`
+  и любые будущие поля протокола переживают цикл сохранение → перенос → экспорт.
 
 ## 3. Ручная проверка на симуляторе/устройстве
 
