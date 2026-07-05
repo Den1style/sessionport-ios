@@ -25,7 +25,7 @@ struct HistoryView: View {
         ScrollView(.vertical, showsIndicators: false) {
             VStack(spacing: 6) {
                 if snapshots.isEmpty {
-                    Text("Нет снэпшотов")
+                    Text(L.t("kb.history.empty"))
                         .font(.system(size: 12))
                         .foregroundStyle(.secondary)
                         .frame(maxWidth: .infinity)
@@ -68,7 +68,6 @@ struct HistoryView: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
         }
-        .frame(maxHeight: 180)
     }
 
     // MARK: Detail
@@ -81,7 +80,7 @@ struct HistoryView: View {
                 } label: {
                     HStack(spacing: 3) {
                         Image(systemName: "chevron.left").font(.system(size: 10, weight: .semibold))
-                        Text("Назад").font(.system(size: 12))
+                        Text(L.t("kb.back")).font(.system(size: 12))
                     }
                     .foregroundStyle(.secondary)
                 }
@@ -117,10 +116,10 @@ struct HistoryView: View {
                     HStack(spacing: 4) {
                         Image(systemName: "arrow.right.circle.fill")
                             .font(.system(size: 10))
-                            .foregroundStyle(.accentColor)
+                            .foregroundStyle(Color.accentColor)
                         Text(snap.nextStep)
                             .font(.system(size: 11))
-                            .foregroundStyle(.accentColor)
+                            .foregroundStyle(Color.accentColor)
                             .lineLimit(2)
                     }
                 }

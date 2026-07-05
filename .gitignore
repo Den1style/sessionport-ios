@@ -31,3 +31,7 @@ Thumbs.db
 *.mobileprovision
 GoogleService-Info.plist
 secrets.xcconfig
+
+# Xcode per-user state (recursive — nested inside .xcodeproj too)
+**/xcuserdata/
+*.xcuserstate

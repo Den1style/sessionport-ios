@@ -1,7 +1,7 @@
 import SwiftUI
 
-struct TrashView: View {
-    @State private var trashed = SharedStorage.shared.trashedSnapshots
+struct PromptTrashView: View {
+    @State private var trashed = SharedStorage.shared.trashedPrompts
     @State private var showEmptyConfirm = false
 
     var body: some View {
@@ -11,17 +11,17 @@ struct TrashView: View {
                     ContentUnavailableView(
                         L.t("trash.empty.title"),
                         systemImage: "trash",
-                        description: Text(L.t("trash.snap.empty"))
+                        description: Text(L.t("trash.prompt.empty"))
                     )
                 } else {
                     List {
-                        ForEach(trashed) { snap in
-                            TrashCard(snapshot: snap, onRestore: {
-                                SharedStorage.shared.restoreFromTrash(id: snap.id)
-                                trashed = SharedStorage.shared.trashedSnapshots
+                        ForEach(trashed) { prompt in
+                            PromptTrashCard(prompt: prompt, onRestore: {
+                                SharedStorage.shared.restorePrompt(id: prompt.id)
+                                trashed = SharedStorage.shared.trashedPrompts
                             }, onDelete: {
-                                SharedStorage.shared.permanentlyDelete(id: snap.id)
-                                trashed = SharedStorage.shared.trashedSnapshots
+                                SharedStorage.shared.permanentlyDeletePrompt(id: prompt.id)
+                                trashed = SharedStorage.shared.trashedPrompts
                             })
                             .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
                             .listRowBackground(Color.clear)
@@ -42,14 +42,14 @@ struct TrashView: View {
                     }
                 }
             }
-            .onAppear { trashed = SharedStorage.shared.trashedSnapshots }
+            .onAppear { trashed = SharedStorage.shared.trashedPrompts }
             .confirmationDialog(
                 L.t("trash.clear.title"),
                 isPresented: $showEmptyConfirm,
                 titleVisibility: .visible
             ) {
                 Button("\(L.t("trash.deleteForever")) (\(trashed.count))", role: .destructive) {
-                    SharedStorage.shared.emptyTrash()
+                    SharedStorage.shared.emptyPromptsTrash()
                     trashed = []
                 }
                 Button(L.t("common.cancel"), role: .cancel) {}
@@ -60,33 +60,37 @@ struct TrashView: View {
     }
 }
 
-struct TrashCard: View {
-    let snapshot: Snapshot
+struct PromptTrashCard: View {
+    let prompt: PromptItem
     let onRestore: () -> Void
     let onDelete: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Circle().fill(llmColor(snapshot.llmSource)).frame(width: 8, height: 8)
-                Text(snapshot.title)
+            HStack(spacing: 6) {
+                if prompt.isFavorite {
+                    Image(systemName: "star.fill").font(.caption).foregroundStyle(.yellow)
+                }
+                Text(prompt.title)
                     .font(.system(size: 14, weight: .semibold))
                     .foregroundStyle(.primary)
                     .lineLimit(1)
                 Spacer()
-                if let proj = snapshot.project {
-                    Text(proj)
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .padding(.horizontal, 6).padding(.vertical, 2)
-                        .background(Color.secondary.opacity(0.1), in: Capsule())
+                if !prompt.attachedFiles.isEmpty {
+                    Text("📎 \(prompt.attachedFiles.count)")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
             }
 
-            if let deleted = snapshot.deletedAt {
+            Text(prompt.body)
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(2)
+
+            if let deleted = prompt.deletedAt {
                 Text("\(L.t("trash.deletedAgo")) \(deleted, style: .relative)")
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(.tertiary)
             }
 
             HStack(spacing: 8) {
@@ -113,16 +117,5 @@ struct TrashCard: View {
         }
         .padding(12)
         .background(Color(UIColor.secondarySystemBackground), in: RoundedRectangle(cornerRadius: 12))
-    }
-
-    private func llmColor(_ s: String) -> Color {
-        switch s.lowercased() {
-        case "claude": return .orange
-        case "chatgpt": return .green
-        case "gemini": return .blue
-        case "grok": return .primary
-        case "perplexity": return .purple
-        default: return .gray
-        }
     }
 }

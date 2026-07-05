@@ -6,6 +6,7 @@ struct SnapshotDetailView: View {
     @State private var showCopied = false
     @State private var showFilePicker = false
     @State private var fileError: String? = nil
+    @State private var pendingFileDelete: AttachedFile? = nil
 
     var body: some View {
         List {
@@ -32,7 +33,7 @@ struct SnapshotDetailView: View {
             if !snapshot.nextStep.isEmpty {
                 Section("Следующий шаг") {
                     Label(snapshot.nextStep, systemImage: "arrow.right.circle.fill")
-                        .foregroundStyle(.accentColor, .primary)
+                        .foregroundStyle(Color.accentColor, Color.primary)
                 }
             }
 
@@ -51,8 +52,7 @@ struct SnapshotDetailView: View {
                         }
                         Spacer()
                         Button(role: .destructive) {
-                            snapshot.attachedFiles.removeAll { $0.id == file.id }
-                            SharedStorage.shared.updateSnapshot(snapshot)
+                            pendingFileDelete = file
                         } label: {
                             Image(systemName: "trash").font(.caption)
                         }
@@ -65,7 +65,7 @@ struct SnapshotDetailView: View {
                     showFilePicker = true
                 } label: {
                     Label("Прикрепить файл", systemImage: "paperclip")
-                        .foregroundStyle(.accentColor)
+                        .foregroundStyle(Color.accentColor)
                 }
             } header: {
                 HStack {
@@ -79,13 +79,13 @@ struct SnapshotDetailView: View {
 
             Section {
                 Button {
-                    copyWithExpiration(snapshot.contextText())
+                    copyWithExpiration(snapshot.restoreContext())
                     showCopied = true
                 } label: {
                     Label("Копировать контекст + файлы", systemImage: "doc.on.clipboard")
                 }
                 Button {
-                    copyWithExpiration(snapshot.contextText(includeFiles: false))
+                    copyWithExpiration(snapshot.restoreContext(includeFiles: false))
                     showCopied = true
                 } label: {
                     Label("Только контекст", systemImage: "doc.on.doc")
@@ -122,6 +122,18 @@ struct SnapshotDetailView: View {
         .alert("File error", isPresented: Binding(get: { fileError != nil }, set: { if !$0 { fileError = nil } })) {
             Button("OK") { fileError = nil }
         } message: { Text(fileError ?? "") }
+        .confirmationDialog(
+            L.t("file.delete.title"),
+            isPresented: Binding(get: { pendingFileDelete != nil }, set: { if !$0 { pendingFileDelete = nil } }),
+            titleVisibility: .visible,
+            presenting: pendingFileDelete
+        ) { file in
+            Button(L.t("common.delete"), role: .destructive) {
+                snapshot.attachedFiles.removeAll { $0.id == file.id }
+                SharedStorage.shared.updateSnapshot(snapshot)
+            }
+            Button(L.t("common.cancel"), role: .cancel) {}
+        } message: { _ in Text(L.t("file.delete.msg")) }
     }
 
     private func handleFilePick(_ result: Result<[URL], Error>) {

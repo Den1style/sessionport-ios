@@ -2,31 +2,38 @@ import SwiftUI
 
 struct OnboardingView: View {
     let onDone: () -> Void
+    @EnvironmentObject var settings: AppSettings
     @State private var step = 0
 
-    private let steps: [OnboardingStep] = [
-        OnboardingStep(
-            icon: "keyboard",
-            title: "Add the Keyboard",
-            body: "SessionPort works as a custom keyboard that appears in Claude, ChatGPT, Gemini, and other AI apps.",
-            action: "Next"
-        ),
-        OnboardingStep(
-            icon: "gear",
-            title: "Enable in Settings",
-            body: "Go to Settings → General → Keyboard → Keyboards → Add New Keyboard → SessionPort.\n\nThen tap SessionPort and enable Full Access.",
-            action: "I've added it"
-        ),
-        OnboardingStep(
-            icon: "arrow.left.arrow.right",
-            title: "Transfer Context",
-            body: "Open Claude or ChatGPT, tap the globe icon to switch to SessionPort keyboard, and use ⚡ Simple or 🔬 Extended mode to save and load conversation context.",
-            action: "Get started"
-        ),
-    ]
+    private var steps: [OnboardingStep] {
+        [
+            OnboardingStep(icon: "keyboard",
+                           title: L.t("onb.1.title"), body: L.t("onb.1.body"),
+                           action: L.t("onb.next")),
+            OnboardingStep(icon: "gear",
+                           title: L.t("onb.2.title"), body: L.t("onb.2.body"),
+                           action: L.t("onb.added")),
+            OnboardingStep(icon: "arrow.left.arrow.right",
+                           title: L.t("onb.3.title"), body: L.t("onb.3.body"),
+                           action: L.t("onb.start")),
+        ]
+    }
 
     var body: some View {
         VStack(spacing: 0) {
+            // Language switcher (top) — so users land on their language immediately
+            HStack {
+                Spacer()
+                Picker("", selection: $settings.language) {
+                    Text("EN").tag(AppLanguage.en)
+                    Text("RU").tag(AppLanguage.ru)
+                }
+                .pickerStyle(.segmented)
+                .frame(width: 120)
+                .padding(.trailing, 20)
+                .padding(.top, 12)
+            }
+
             Spacer()
 
             let current = steps[step]
@@ -34,12 +41,13 @@ struct OnboardingView: View {
             VStack(spacing: 24) {
                 Image(systemName: current.icon)
                     .font(.system(size: 64))
-                    .foregroundStyle(.accentColor)
+                    .foregroundStyle(Color.accentColor)
                     .symbolRenderingMode(.hierarchical)
 
                 VStack(spacing: 10) {
                     Text(current.title)
                         .font(.title.bold())
+                        .multilineTextAlignment(.center)
 
                     Text(current.body)
                         .font(.body)
@@ -52,7 +60,6 @@ struct OnboardingView: View {
             Spacer()
 
             VStack(spacing: 16) {
-                // Progress dots
                 HStack(spacing: 8) {
                     ForEach(0..<steps.count, id: \.self) { i in
                         Circle()
@@ -61,15 +68,14 @@ struct OnboardingView: View {
                     }
                 }
 
-                // Open Settings button (step 1 only)
                 if step == 1 {
-                    Button("Open Settings") {
-                        if let url = URL(string: UIApplication.openSettingsURLString) {
-                            UIApplication.shared.open(url)
-                        }
+                    Button(L.t("onb.openSettings")) {
+                        let url = URL(string: "App-prefs:General&path=Keyboard/KEYBOARDS")
+                            ?? URL(string: UIApplication.openSettingsURLString)!
+                        UIApplication.shared.open(url)
                     }
                     .font(.subheadline)
-                    .foregroundStyle(.accentColor)
+                    .foregroundStyle(Color.accentColor)
                 }
 
                 Button(current.action) {

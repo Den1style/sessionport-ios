@@ -5,6 +5,7 @@ import UIKit
 struct SessionPortApp: App {
     @StateObject private var drive = GoogleDriveService.shared
     @StateObject private var store = StoreKitService.shared
+    @StateObject private var settings = AppSettings.shared
     @Environment(\.scenePhase) private var scenePhase
 
     var body: some Scene {
@@ -12,6 +13,8 @@ struct SessionPortApp: App {
             ContentView()
                 .environmentObject(drive)
                 .environmentObject(store)
+                .environmentObject(settings)
+                .preferredColorScheme(settings.theme.colorScheme)
         }
         // Background screenshot protection (MASVS-STORAGE-2 / MASTG-TEST-0058):
         // blur sensitive content when app moves to background so it won't
