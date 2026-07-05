@@ -7,7 +7,18 @@
 > Код написан и вычитан, но **НЕ собирался** — на Windows нет Swift-компилятора.
 > Этот файл — чеклист для Mac.
 
-## 1. Собрать и прогнать тесты — ✅ СДЕЛАНО (Mac, 2026-07-05)
+## 0. ⚠️ НОВОЕ: rawPayload — нужен повторный прогон тестов
+
+Прогон из п.1 покрывает пункт 3, но сделан ДО коммита `90331a4` (rawPayload).
+Добавились 2 теста (`rawPayloadIsVerbatimAndUsedForTransfer`,
+`rawPayloadSurvivesExportImportCycle`) и правки в Snapshot.swift /
+SnapshotInterchange.swift. Повторить:
+
+```bash
+xcodebuild test -scheme SessionPort -destination 'platform=iOS Simulator,name=iPhone 17 Pro'
+```
+
+## 1. Собрать и прогнать тесты (пункт 3) — ✅ СДЕЛАНО (Mac, 2026-07-05)
 
 Проект в корне репозитория (не в `iOS/`), `.xcodeproj` закоммичен — `xcodegen`
 не требуется. Собрано и протестировано на симуляторе **iPhone 17 Pro**
