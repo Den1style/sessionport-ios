@@ -2,6 +2,8 @@
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
+    <key>CFBundleExecutable</key>
+    <string>$(EXECUTABLE_NAME)</string>
     <key>CFBundleName</key>
     <string>SessionPort</string>
     <key>CFBundleDisplayName</key>
@@ -22,6 +24,8 @@
     <array>
         <string>UIInterfaceOrientationPortrait</string>
     </array>
+    <key>UIRequiresFullScreen</key>
+    <true/>
 
     <!-- OAuth redirect schemes -->
     <key>CFBundleURLTypes</key>
@@ -29,10 +33,10 @@
         <!-- App's own scheme for deep links -->
         <dict>
             <key>CFBundleURLName</key>
-            <string>com.sessionport.app</string>
+            <string>com.lusine.sessionport</string>
             <key>CFBundleURLSchemes</key>
             <array>
-                <string>com.sessionport.app</string>
+                <string>com.lusine.sessionport</string>
             </array>
         </dict>
         <!-- Google reversed client ID — required for OAuth callback -->

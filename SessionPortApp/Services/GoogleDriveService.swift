@@ -12,7 +12,7 @@ private let kClientID    = "747235685517-rrj7cgn3gchhte3sl61v35niibis0jbe.apps.g
 private let kRedirectURI = "com.googleusercontent.apps.747235685517-rrj7cgn3gchhte3sl61v35niibis0jbe:/oauth2callback"
 private let kScope       = "https://www.googleapis.com/auth/drive.file"
 private let kFolderName  = "SessionPort Backups"
-private let kKeychainSvc = "com.sessionport.app"
+private let kKeychainSvc = "com.lusine.sessionport"
 private let kKeychainAcc = "google_refresh_token"
 
 // Max restore file size: 10 MB
@@ -34,6 +34,9 @@ final class GoogleDriveService: ObservableObject {
     private var tokenExpiry: Date = .distantPast
     // Prevents two concurrent refreshes (race condition fix)
     private var refreshTask: Task<String, Error>? = nil
+    // Retained for the lifetime of the auth session — `presentationContextProvider`
+    // is weak, so a temporary would deallocate and the OAuth sheet wouldn't show.
+    private var anchorProvider: WindowAnchorProvider? = nil
 
     private init() {
         email = SharedStorage.shared.driveEmail
@@ -77,7 +80,9 @@ final class GoogleDriveService: ObservableObject {
                 }
                 cont.resume(returning: code)
             }
-            session.presentationContextProvider = WindowAnchorProvider(window: anchor)
+            let provider = WindowAnchorProvider(window: anchor)
+            anchorProvider = provider                       // strong ref keeps it alive
+            session.presentationContextProvider = provider
             session.prefersEphemeralWebBrowserSession = false
             session.start()
         }
@@ -149,20 +154,11 @@ final class GoogleDriveService: ObservableObject {
     }
 
     private func makeBackupData() throws -> Data {
-        let enc = JSONEncoder()
-        enc.dateEncodingStrategy = .iso8601
-        enc.outputFormatting = .prettyPrinted
-        let snapsData = try enc.encode(SharedStorage.shared.snapshots)
-        guard let snapsJSON = try? JSONSerialization.jsonObject(with: snapsData) else {
-            throw DriveError.apiError
-        }
-        let payload: [String: Any] = [
-            "schema_version": 2,
-            "app": "SessionPort",
-            "backed_up_at": ISO8601DateFormatter().string(from: Date()),
-            "snapshots": snapsJSON,
-        ]
-        return try JSONSerialization.data(withJSONObject: payload)
+        // Browser-compatible format (schema_version 1) — unified iOS ⇄ extension.
+        // The same file restores in the Chrome extension and vice versa.
+        let data = SnapshotInterchange.exportJSON(SharedStorage.shared.snapshots)
+        guard !data.isEmpty else { throw DriveError.apiError }
+        return data
     }
 
     private func uploadBackup(token: String, folderID: String, data: Data) async throws {
@@ -195,10 +191,12 @@ final class GoogleDriveService: ObservableObject {
         if let ongoing = refreshTask { return try await ongoing.value }
         guard let refresh = loadRefreshToken() else { throw DriveError.notConnected }
         let task = Task<String, Error> {
+            // Clear on success AND failure — a cached failed task would otherwise
+            // replay the same error on every later sync until app restart.
+            defer { self.refreshTask = nil }
             let r = try await self.refreshToken(refresh)
             self.accessToken = r.accessToken
             self.tokenExpiry = Date().addingTimeInterval(Double(r.expiresIn) - 60)
-            self.refreshTask = nil
             return r.accessToken
         }
         refreshTask = task

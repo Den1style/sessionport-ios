@@ -3,7 +3,7 @@ import SwiftUI
 struct PromptsView: View {
     let onInsert: (String) -> Void
 
-    @State private var prompts = SharedStorage.shared.prompts
+    @State private var prompts = SharedStorage.shared.activePrompts
     @State private var expandedId: String? = nil
 
     var body: some View {
@@ -39,10 +39,9 @@ struct PromptsView: View {
             .padding(.horizontal, 10)
             .padding(.vertical, 8)
         }
-        .frame(maxHeight: 180)
         .onAppear {
             // Reload in case user created prompts in the app
-            prompts = SharedStorage.shared.prompts
+            prompts = SharedStorage.shared.activePrompts
         }
     }
 }

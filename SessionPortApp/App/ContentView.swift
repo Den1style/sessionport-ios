@@ -7,16 +7,22 @@ import UniformTypeIdentifiers
 struct ContentView: View {
     @EnvironmentObject var drive: GoogleDriveService
     @EnvironmentObject var store: StoreKitService
+    @EnvironmentObject var settings: AppSettings
     @AppStorage("sp_onboarding_done") private var onboardingDone = false
 
     var body: some View {
-        if !onboardingDone {
-            OnboardingView(onDone: { onboardingDone = true })
-        } else {
-            MainTabView()
-                .environmentObject(drive)
-                .environmentObject(store)
+        Group {
+            if !onboardingDone {
+                OnboardingView(onDone: { onboardingDone = true })
+            } else {
+                MainTabView()
+                    .environmentObject(drive)
+                    .environmentObject(store)
+                    .environmentObject(settings)
+            }
         }
+        // Re-render whole tree when language changes
+        .id(settings.language)
     }
 }
 
@@ -25,24 +31,26 @@ struct ContentView: View {
 struct MainTabView: View {
     @EnvironmentObject var drive: GoogleDriveService
     @EnvironmentObject var store: StoreKitService
+    @EnvironmentObject var settings: AppSettings
 
     var body: some View {
         TabView {
             SnapshotsTab()
-                .tabItem { Label("История", systemImage: "clock.arrow.circlepath") }
+                .tabItem { Label(L.t("tab.history"), systemImage: "clock.arrow.circlepath") }
                 .environmentObject(drive)
                 .environmentObject(store)
 
             PromptsLibraryTab()
-                .tabItem { Label("Промпты", systemImage: "pencil.and.list.clipboard") }
+                .tabItem { Label(L.t("tab.prompts"), systemImage: "pencil.and.list.clipboard") }
 
             MindMapContainerView()
-                .tabItem { Label("Mind Map", systemImage: "brain.head.profile") }
+                .tabItem { Label(L.t("tab.mindmap"), systemImage: "brain.head.profile") }
 
             SettingsTab()
-                .tabItem { Label("Настройки", systemImage: "gear") }
+                .tabItem { Label(L.t("tab.settings"), systemImage: "gear") }
                 .environmentObject(drive)
                 .environmentObject(store)
+                .environmentObject(settings)
         }
     }
 }
@@ -52,6 +60,7 @@ struct MainTabView: View {
 struct SnapshotsTab: View {
     @EnvironmentObject var drive: GoogleDriveService
     @EnvironmentObject var store: StoreKitService
+    @AppStorage("sp_keyboard_setup_done") private var keyboardSetupDone = false
 
     @State private var snapshots = SharedStorage.shared.activeSnapshots
     @State private var search = ""
@@ -61,6 +70,8 @@ struct SnapshotsTab: View {
     @State private var showExport = false
     @State private var showImport = false
     @State private var importError: String? = nil
+    @State private var showRename = false
+    @State private var renameText = ""
 
     private var freeRemaining: Int { max(0, 5 - snapshots.count) }
     private var projects: [String] { SharedStorage.shared.allProjects }
@@ -82,6 +93,13 @@ struct SnapshotsTab: View {
     var body: some View {
         NavigationStack {
             List {
+                // Keyboard setup banner
+                if !keyboardSetupDone {
+                    KeyboardSetupBanner { keyboardSetupDone = true }
+                        .listRowBackground(Color.clear)
+                        .listRowInsets(.init())
+                }
+
                 // Sync banner
                 if drive.isConnected {
                     SyncBanner(drive: drive)
@@ -100,7 +118,7 @@ struct SnapshotsTab: View {
                 if !projects.isEmpty {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 6) {
-                            ProjectChip(label: "Все", isActive: selectedProject == nil) {
+                            ProjectChip(label: L.t("snap.all"), isActive: selectedProject == nil) {
                                 selectedProject = nil
                             }
                             ForEach(projects, id: \.self) { proj in
@@ -123,11 +141,11 @@ struct SnapshotsTab: View {
                 // Snapshot list
                 if filtered.isEmpty {
                     ContentUnavailableView(
-                        search.isEmpty ? "Нет снэпшотов" : "Ничего не найдено",
+                        search.isEmpty ? L.t("snap.empty.title") : L.t("snap.notfound"),
                         systemImage: "clock.arrow.circlepath",
                         description: Text(search.isEmpty
-                            ? "Используй клавиатуру SessionPort для захвата контекста"
-                            : "Попробуй другой запрос")
+                            ? L.t("snap.empty.desc")
+                            : L.t("snap.notfound.desc"))
                     )
                     .listRowBackground(Color.clear)
                 } else {
@@ -144,22 +162,30 @@ struct SnapshotsTab: View {
                     }
                 }
             }
-            .searchable(text: $search, prompt: "Поиск снэпшотов")
-            .navigationTitle("История")
+            .searchable(text: $search, prompt: L.t("snap.search"))
+            .navigationTitle(L.t("snap.title"))
             .toolbar {
                 ToolbarItem(placement: .navigationBarLeading) {
                     Menu {
                         Button { showExport = true } label: {
-                            Label("Экспорт JSON", systemImage: "square.and.arrow.up")
+                            Label(L.t("snap.export"), systemImage: "square.and.arrow.up")
                         }
                         Button { showImport = true } label: {
-                            Label("Импорт JSON", systemImage: "square.and.arrow.down")
+                            Label(L.t("snap.import"), systemImage: "square.and.arrow.down")
+                        }
+                        if let proj = selectedProject {
+                            Button {
+                                renameText = proj
+                                showRename = true
+                            } label: {
+                                Label("\(L.t("proj.rename")) «\(proj)»", systemImage: "pencil")
+                            }
                         }
                         Divider()
                         Button {
                             showTrash = true
                         } label: {
-                            Label("Корзина (\(trashCount))", systemImage: "trash")
+                            Label("\(L.t("trash.title")) (\(trashCount))", systemImage: "trash")
                         }
                     } label: {
                         Image(systemName: "ellipsis.circle")
@@ -168,8 +194,7 @@ struct SnapshotsTab: View {
                 if drive.isConnected {
                     ToolbarItem(placement: .navigationBarTrailing) {
                         Button { Task { await drive.sync() } } label: {
-                            Image(systemName: "arrow.clockwise")
-                                .symbolEffect(.rotate, isActive: drive.isSyncing)
+                            Image(systemName: drive.isSyncing ? "arrow.clockwise.circle.fill" : "arrow.clockwise")
                         }
                     }
                 }
@@ -185,9 +210,20 @@ struct SnapshotsTab: View {
             .fileImporter(isPresented: $showImport, allowedContentTypes: [.json]) { result in
                 handleImport(result)
             }
-            .alert("Ошибка импорта", isPresented: Binding(get: { importError != nil }, set: { if !$0 { importError = nil } })) {
-                Button("OK") { importError = nil }
+            .alert(L.t("snap.importError"), isPresented: Binding(get: { importError != nil }, set: { if !$0 { importError = nil } })) {
+                Button(L.t("common.ok")) { importError = nil }
             } message: { Text(importError ?? "") }
+            .alert(L.t("proj.rename"), isPresented: $showRename) {
+                TextField(L.t("proj.name"), text: $renameText)
+                Button(L.t("common.save")) {
+                    if let old = selectedProject {
+                        SharedStorage.shared.renameProject(old, to: renameText)
+                        selectedProject = renameText.trimmingCharacters(in: .whitespacesAndNewlines)
+                        snapshots = SharedStorage.shared.activeSnapshots
+                    }
+                }
+                Button(L.t("common.cancel"), role: .cancel) {}
+            }
         }
     }
 
@@ -247,28 +283,21 @@ struct ExportView: View {
 
     private func exportSelected() {
         let toExport = selected.isEmpty ? snapshots : snapshots.filter { selected.contains($0.id) }
-        let enc = JSONEncoder()
-        enc.dateEncodingStrategy = .iso8601
-        enc.outputFormatting = [.prettyPrinted, .sortedKeys]
-        guard let snapsData = try? enc.encode(toExport),
-              let snapsJSON = try? JSONSerialization.jsonObject(with: snapsData) else { return }
-        let payload: [String: Any] = [
-            "schema_version": 2,
-            "app": "SessionPort",
-            "exported_at": ISO8601DateFormatter().string(from: Date()),
-            "snapshots": snapsJSON,
-        ]
-        guard let data = try? JSONSerialization.data(withJSONObject: payload, options: .prettyPrinted),
-              let json = String(data: data, encoding: .utf8) else { return }
+        // Browser-compatible format (schema_version 1) — unified iOS ⇄ extension
+        let data = SnapshotInterchange.exportJSON(toExport)
+        guard !data.isEmpty else { return }
 
         let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("sessionport-export-\(Int(Date().timeIntervalSince1970)).json")
-        try? json.write(to: url, atomically: true, encoding: .utf8)
+            .appendingPathComponent("sessionport-backup-\(Int(Date().timeIntervalSince1970)).json")
+        try? data.write(to: url)
         let av = UIActivityViewController(activityItems: [url], applicationActivities: nil)
-        // Use topMostViewController so sheet/modal stacks are handled correctly
-        av.completionWithItemsHandler = { _, _, _, _ in
+        // Use topMostViewController so sheet/modal stacks are handled correctly.
+        // Dismiss only AFTER sharing finishes — dismissing the presenting sheet
+        // immediately would tear the share sheet down with it.
+        av.completionWithItemsHandler = { _, completed, _, _ in
             // Secure deletion of temp export file after sharing completes
             try? FileManager.default.removeItem(at: url)
+            if completed { dismiss() }
         }
         if let root = UIApplication.shared.connectedScenes
             .compactMap({ $0 as? UIWindowScene })
@@ -277,7 +306,6 @@ struct ExportView: View {
             .rootViewController {
             topMostViewController(root).present(av, animated: true)
         }
-        dismiss()
     }
 }
 
@@ -289,7 +317,7 @@ struct StorageBar: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Text("Буфер:")
+            Text(L.t("snap.buffer"))
                 .font(.system(size: 10))
                 .foregroundStyle(.secondary)
             GeometryReader { geo in
@@ -320,9 +348,15 @@ struct StorageBar: View {
 // MARK: - Prompts Library Tab
 
 struct PromptsLibraryTab: View {
-    @State private var prompts = SharedStorage.shared.prompts
+    @State private var prompts = SharedStorage.shared.activePrompts
     @State private var showNew = false
+    @State private var showTrash = false
     @State private var search = ""
+    @State private var pendingDelete: PromptItem? = nil
+    @State private var showImport = false
+    @State private var importError: String? = nil
+
+    private var trashCount: Int { SharedStorage.shared.trashedPrompts.count }
 
     private var filtered: [PromptItem] {
         search.isEmpty ? prompts : prompts.filter {
@@ -333,53 +367,152 @@ struct PromptsLibraryTab: View {
 
     var body: some View {
         NavigationStack {
-            List {
-                ForEach(filtered) { p in
-                    NavigationLink(destination: PromptDetailView(prompt: p)) {
-                        VStack(alignment: .leading, spacing: 3) {
-                            HStack(spacing: 6) {
-                                if p.isFavorite {
-                                    Image(systemName: "star.fill")
-                                        .font(.caption).foregroundStyle(.yellow)
-                                }
-                                Text(p.title).font(.headline)
+            Group {
+                if filtered.isEmpty {
+                    ContentUnavailableView(
+                        L.t("prompts.empty"),
+                        systemImage: "pencil.and.list.clipboard"
+                    )
+                } else {
+                    List {
+                        ForEach(filtered) { p in
+                            NavigationLink(destination: PromptDetailView(prompt: p) {
+                                prompts = SharedStorage.shared.activePrompts
+                            }) {
+                                promptRow(p)
                             }
-                            Text(p.body)
-                                .font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
-                            HStack(spacing: 8) {
-                                if !p.variables.isEmpty {
-                                    Text(p.variables.map { "{{\($0)}}" }.joined(separator: " "))
-                                        .font(.caption).foregroundStyle(.accentColor)
-                                }
-                                if !p.attachedFiles.isEmpty {
-                                    Text("📎 \(p.attachedFiles.count)")
-                                        .font(.caption).foregroundStyle(.secondary)
+                            .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                                Button(role: .destructive) { pendingDelete = p } label: {
+                                    Label(L.t("common.delete"), systemImage: "trash")
                                 }
                             }
                         }
-                        .padding(.vertical, 2)
                     }
                 }
-                .onDelete { idx in
-                    idx.forEach { SharedStorage.shared.deletePrompt(id: filtered[$0].id) }
-                    prompts = SharedStorage.shared.prompts
-                }
             }
-            .searchable(text: $search, prompt: "Поиск промптов")
-            .navigationTitle("Промпты")
+            .searchable(text: $search, prompt: L.t("prompts.search"))
+            .navigationTitle(L.t("prompts.title"))
             .toolbar {
+                ToolbarItem(placement: .navigationBarLeading) {
+                    Menu {
+                        Button { exportPrompts() } label: {
+                            Label(L.t("snap.export"), systemImage: "square.and.arrow.up")
+                        }
+                        Button { showImport = true } label: {
+                            Label(L.t("snap.import"), systemImage: "square.and.arrow.down")
+                        }
+                        Divider()
+                        Button { showTrash = true } label: {
+                            Label("\(L.t("prompts.trash")) (\(trashCount))", systemImage: "trash")
+                        }
+                    } label: {
+                        Image(systemName: "ellipsis.circle")
+                    }
+                }
                 ToolbarItem(placement: .primaryAction) {
                     Button { showNew = true } label: { Image(systemName: "plus") }
                 }
             }
-            .onAppear { prompts = SharedStorage.shared.prompts }
+            .fileImporter(isPresented: $showImport, allowedContentTypes: [.json]) { result in
+                handlePromptImport(result)
+            }
+            .alert(L.t("snap.importError"), isPresented: Binding(get: { importError != nil }, set: { if !$0 { importError = nil } })) {
+                Button(L.t("common.ok")) { importError = nil }
+            } message: { Text(importError ?? "") }
+            .onAppear { prompts = SharedStorage.shared.activePrompts }
         }
         .sheet(isPresented: $showNew) {
             NewPromptSheet { prompt in
                 SharedStorage.shared.addPrompt(prompt)
-                prompts = SharedStorage.shared.prompts
+                prompts = SharedStorage.shared.activePrompts
             }
         }
+        .sheet(isPresented: $showTrash, onDismiss: {
+            prompts = SharedStorage.shared.activePrompts
+        }) {
+            PromptTrashView()
+        }
+        .confirmationDialog(
+            L.t("prompt.delete.title"),
+            isPresented: Binding(get: { pendingDelete != nil }, set: { if !$0 { pendingDelete = nil } }),
+            titleVisibility: .visible,
+            presenting: pendingDelete
+        ) { p in
+            Button(L.t("common.delete"), role: .destructive) {
+                SharedStorage.shared.movePromptToTrash(id: p.id)
+                prompts = SharedStorage.shared.activePrompts
+            }
+            Button(L.t("common.cancel"), role: .cancel) {}
+        } message: { _ in
+            Text(L.t("prompt.delete.msg"))
+        }
+    }
+
+    // MARK: Export / Import (browser-compatible sessionport_prompts_v1)
+
+    private func exportPrompts() {
+        let data = PromptInterchange.exportJSON(
+            active: SharedStorage.shared.activePrompts,
+            trashed: SharedStorage.shared.trashedPrompts
+        )
+        guard !data.isEmpty else { return }
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sessionport-prompts-\(Int(Date().timeIntervalSince1970)).json")
+        try? data.write(to: url)
+        let av = UIActivityViewController(activityItems: [url], applicationActivities: nil)
+        av.completionWithItemsHandler = { _, _, _, _ in try? FileManager.default.removeItem(at: url) }
+        if let root = UIApplication.shared.connectedScenes
+            .compactMap({ $0 as? UIWindowScene })
+            .flatMap({ $0.windows })
+            .first(where: { $0.isKeyWindow })?
+            .rootViewController {
+            var top = root
+            while let presented = top.presentedViewController { top = presented }
+            top.present(av, animated: true)
+        }
+    }
+
+    private func handlePromptImport(_ result: Result<URL, Error>) {
+        switch result {
+        case .failure(let e): importError = e.localizedDescription
+        case .success(let url):
+            guard url.startAccessingSecurityScopedResource() else {
+                importError = "Нет доступа к файлу"; return
+            }
+            defer { url.stopAccessingSecurityScopedResource() }
+            guard let data = try? Data(contentsOf: url) else {
+                importError = "Не удалось прочитать файл"; return
+            }
+            let items = PromptInterchange.parse(data)
+            guard !items.isEmpty else {
+                importError = "Файл не содержит промптов SessionPort"; return
+            }
+            SharedStorage.shared.importPrompts(items)
+            prompts = SharedStorage.shared.activePrompts
+        }
+    }
+
+    @ViewBuilder
+    private func promptRow(_ p: PromptItem) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 6) {
+                if p.isFavorite {
+                    Image(systemName: "star.fill").font(.caption).foregroundStyle(.yellow)
+                }
+                Text(p.title).font(.headline)
+            }
+            Text(p.body).font(.subheadline).foregroundStyle(.secondary).lineLimit(2)
+            HStack(spacing: 8) {
+                if !p.variables.isEmpty {
+                    Text(p.variables.map { "{{\($0)}}" }.joined(separator: " "))
+                        .font(.caption).foregroundStyle(Color.accentColor)
+                }
+                if !p.attachedFiles.isEmpty {
+                    Text("📎 \(p.attachedFiles.count)").font(.caption).foregroundStyle(.secondary)
+                }
+            }
+        }
+        .padding(.vertical, 2)
     }
 }
 
@@ -391,34 +524,90 @@ struct NewPromptSheet: View {
     @State private var title = ""
     @State private var body_ = ""
     @State private var isFavorite = false
+    @State private var files: [AttachedFile] = []
+    @State private var showFilePicker = false
+    @State private var fileError: String? = nil
 
     var body: some View {
         NavigationStack {
             Form {
-                Section("Название") {
-                    TextField("Название промпта", text: $title)
+                Section(L.t("prompt.new.name")) {
+                    TextField(L.t("prompt.new.nameField"), text: $title)
                 }
-                Section("Текст (используй {{переменная}} для плейсхолдеров)") {
+                Section(L.t("prompt.new.bodyHeader")) {
                     TextEditor(text: $body_).frame(minHeight: 100)
                 }
                 Section {
-                    Toggle("Избранное", isOn: $isFavorite)
+                    ForEach(files) { file in
+                        HStack(spacing: 10) {
+                            FileIcon(mimeType: file.mimeType)
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(file.name).font(.system(size: 13, weight: .medium)).lineLimit(1)
+                                Text(file.displaySize).font(.caption).foregroundStyle(.secondary)
+                            }
+                            Spacer()
+                            Button(role: .destructive) {
+                                files.removeAll { $0.id == file.id }
+                            } label: {
+                                Image(systemName: "trash").font(.caption)
+                            }
+                            .buttonStyle(.plain).foregroundStyle(.red)
+                        }
+                    }
+                    Button { showFilePicker = true } label: {
+                        Label(L.t("prompt.attach"), systemImage: "paperclip")
+                            .foregroundStyle(Color.accentColor)
+                    }
+                } header: {
+                    Text(L.t("prompt.files"))
+                }
+                Section {
+                    Toggle(L.t("prompt.favorite"), isOn: $isFavorite)
                 }
             }
-            .navigationTitle("Новый промпт")
+            .navigationTitle(L.t("prompt.new.title"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .cancellationAction) { Button("Отмена") { dismiss() } }
+                ToolbarItem(placement: .cancellationAction) { Button(L.t("common.cancel")) { dismiss() } }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Сохранить") {
+                    Button(L.t("common.save")) {
                         guard !title.isEmpty, !body_.isEmpty else { return }
                         onSave(PromptItem(title: String(title.prefix(100)),
                                          body: String(body_.prefix(2000)),
+                                         attachedFiles: files,
                                          isFavorite: isFavorite))
                         dismiss()
                     }
                     .disabled(title.isEmpty || body_.isEmpty)
                 }
+            }
+            .fileImporter(isPresented: $showFilePicker, allowedContentTypes: [.data], allowsMultipleSelection: true) { result in
+                handleFilePick(result)
+            }
+            .alert(L.t("prompt.fileError"), isPresented: Binding(get: { fileError != nil }, set: { if !$0 { fileError = nil } })) {
+                Button(L.t("common.ok")) { fileError = nil }
+            } message: { Text(fileError ?? "") }
+        }
+    }
+
+    private func handleFilePick(_ result: Result<[URL], Error>) {
+        switch result {
+        case .failure(let e): fileError = e.localizedDescription
+        case .success(let urls):
+            for url in urls {
+                guard url.startAccessingSecurityScopedResource() else { continue }
+                defer { url.stopAccessingSecurityScopedResource() }
+                guard let data = try? Data(contentsOf: url) else { continue }
+                guard data.count <= 5 * 1024 * 1024 else {
+                    fileError = "\(url.lastPathComponent) \(L.t("prompt.fileLimit"))"; continue
+                }
+                files.append(AttachedFile(
+                    id: UUID().uuidString,
+                    name: url.lastPathComponent,
+                    mimeType: url.mimeType,
+                    sizeBytes: data.count,
+                    base64: data.base64EncodedString()
+                ))
             }
         }
     }
@@ -428,25 +617,27 @@ struct NewPromptSheet: View {
 
 struct PromptDetailView: View {
     @State var prompt: PromptItem
+    var onChange: () -> Void = {}
     @State private var varValues: [String: String] = [:]
     @State private var showCopied = false
     @State private var showFilePicker = false
     @State private var fileError: String? = nil
+    @State private var pendingFileDelete: AttachedFile? = nil
     @Environment(\.dismiss) private var dismiss
 
     var resolved: String { prompt.insertionText(variableValues: varValues) }
 
     var body: some View {
         List {
-            Section("Текст") { Text(prompt.body) }
+            Section(L.t("prompt.text")) { Text(prompt.body) }
 
             if !prompt.variables.isEmpty {
-                Section("Переменные") {
+                Section(L.t("prompt.variables")) {
                     ForEach(prompt.variables, id: \.self) { v in
                         HStack {
-                            Text("{{\(v)}}").foregroundStyle(.accentColor).font(.caption.monospaced())
+                            Text("{{\(v)}}").foregroundStyle(Color.accentColor).font(.caption.monospaced())
                             Spacer()
-                            TextField("значение", text: Binding(
+                            TextField(L.t("prompt.value"), text: Binding(
                                 get: { varValues[v] ?? "" },
                                 set: { varValues[v] = $0 }
                             ))
@@ -454,7 +645,7 @@ struct PromptDetailView: View {
                         }
                     }
                 }
-                Section("Предпросмотр") {
+                Section(L.t("prompt.preview")) {
                     Text(resolved).font(.body).foregroundStyle(.secondary)
                 }
             }
@@ -469,8 +660,7 @@ struct PromptDetailView: View {
                         }
                         Spacer()
                         Button(role: .destructive) {
-                            prompt.attachedFiles.removeAll { $0.id == file.id }
-                            SharedStorage.shared.updatePrompt(prompt)
+                            pendingFileDelete = file
                         } label: {
                             Image(systemName: "trash").font(.caption)
                         }
@@ -478,11 +668,11 @@ struct PromptDetailView: View {
                     }
                 }
                 Button { showFilePicker = true } label: {
-                    Label("Прикрепить файл", systemImage: "paperclip").foregroundStyle(.accentColor)
+                    Label(L.t("prompt.attach"), systemImage: "paperclip").foregroundStyle(Color.accentColor)
                 }
             } header: {
                 HStack {
-                    Text("Файлы")
+                    Text(L.t("prompt.files"))
                     if !prompt.attachedFiles.isEmpty {
                         Text("(\(prompt.attachedFiles.count))").foregroundStyle(.secondary)
                     }
@@ -495,12 +685,12 @@ struct PromptDetailView: View {
                     showCopied = true
                     Task { try? await Task.sleep(for: .seconds(1.5)); withAnimation { showCopied = false } }
                 } label: {
-                    Label(showCopied ? "Скопировано ✓" : "Скопировать и вставить",
+                    Label(showCopied ? L.t("prompt.copied") : L.t("prompt.copy"),
                           systemImage: "doc.on.clipboard")
                 }
-                Toggle("Избранное", isOn: Binding(
+                Toggle(L.t("prompt.favorite"), isOn: Binding(
                     get: { prompt.isFavorite },
-                    set: { prompt.isFavorite = $0; SharedStorage.shared.updatePrompt(prompt) }
+                    set: { prompt.isFavorite = $0; SharedStorage.shared.updatePrompt(prompt); onChange() }
                 ))
             }
         }
@@ -509,9 +699,22 @@ struct PromptDetailView: View {
         .fileImporter(isPresented: $showFilePicker, allowedContentTypes: [.data], allowsMultipleSelection: true) { result in
             handleFilePick(result)
         }
-        .alert("Ошибка файла", isPresented: Binding(get: { fileError != nil }, set: { if !$0 { fileError = nil } })) {
-            Button("OK") { fileError = nil }
+        .alert(L.t("prompt.fileError"), isPresented: Binding(get: { fileError != nil }, set: { if !$0 { fileError = nil } })) {
+            Button(L.t("common.ok")) { fileError = nil }
         } message: { Text(fileError ?? "") }
+        .confirmationDialog(
+            L.t("file.delete.title"),
+            isPresented: Binding(get: { pendingFileDelete != nil }, set: { if !$0 { pendingFileDelete = nil } }),
+            titleVisibility: .visible,
+            presenting: pendingFileDelete
+        ) { file in
+            Button(L.t("common.delete"), role: .destructive) {
+                prompt.attachedFiles.removeAll { $0.id == file.id }
+                SharedStorage.shared.updatePrompt(prompt)
+                onChange()
+            }
+            Button(L.t("common.cancel"), role: .cancel) {}
+        } message: { _ in Text(L.t("file.delete.msg")) }
     }
 
     private func handleFilePick(_ result: Result<[URL], Error>) {
@@ -523,7 +726,7 @@ struct PromptDetailView: View {
                 defer { url.stopAccessingSecurityScopedResource() }
                 guard let data = try? Data(contentsOf: url) else { continue }
                 guard data.count <= 5 * 1024 * 1024 else {
-                    fileError = "\(url.lastPathComponent) превышает лимит 5 МБ"; continue
+                    fileError = "\(url.lastPathComponent) \(L.t("prompt.fileLimit"))"; continue
                 }
                 let file = AttachedFile(
                     id: UUID().uuidString,
@@ -535,6 +738,7 @@ struct PromptDetailView: View {
                 prompt.attachedFiles.append(file)
             }
             SharedStorage.shared.updatePrompt(prompt)
+            onChange()
         }
     }
 }
@@ -544,57 +748,89 @@ struct PromptDetailView: View {
 struct SettingsTab: View {
     @EnvironmentObject var drive: GoogleDriveService
     @EnvironmentObject var store: StoreKitService
+    @EnvironmentObject var settings: AppSettings
     @State private var showPaywall = false
     @State private var connectError: String? = nil
+    @State private var showKeyboardHelp = false
+
+    private func themeLabel(_ t: AppTheme) -> String {
+        switch t {
+        case .system: return L.t("settings.theme.system")
+        case .light:  return L.t("settings.theme.light")
+        case .dark:   return L.t("settings.theme.dark")
+        }
+    }
+    private func langLabel(_ l: AppLanguage) -> String {
+        switch l {
+        case .system: return L.t("settings.language.system")
+        case .en:     return "English"
+        case .ru:     return "Русский"
+        }
+    }
 
     var body: some View {
         NavigationStack {
             List {
-                Section("Подписка") {
+                Section(L.t("settings.appearance")) {
+                    Picker(L.t("settings.theme"), selection: $settings.theme) {
+                        ForEach(AppTheme.allCases) { Text(themeLabel($0)).tag($0) }
+                    }
+                    Picker(L.t("settings.language"), selection: $settings.language) {
+                        ForEach(AppLanguage.allCases) { Text(langLabel($0)).tag($0) }
+                    }
+                }
+
+                Section(L.t("settings.keyboard")) {
+                    Button { showKeyboardHelp = true } label: {
+                        Label(L.t("settings.keyboard.howto"), systemImage: "keyboard")
+                    }
+                }
+
+                Section(L.t("settings.subscription")) {
                     if store.isPro {
-                        Label("SessionPort Pro — Активна", systemImage: "crown.fill")
+                        Label(L.t("settings.pro.active"), systemImage: "crown.fill")
                             .foregroundStyle(.yellow)
                     } else {
                         Button { showPaywall = true } label: {
                             HStack {
-                                Label("Перейти на Pro", systemImage: "crown")
+                                Label(L.t("settings.pro.upgrade"), systemImage: "crown")
                                 Spacer()
-                                Text("$4.99/мес").foregroundStyle(.secondary)
+                                Text("$4.99/mo").foregroundStyle(.secondary)
                             }
                         }
                         .foregroundStyle(.primary)
                     }
-                    Button("Восстановить покупки") { Task { await store.restorePurchases() } }
-                        .foregroundStyle(.accentColor)
+                    Button(L.t("settings.restore")) { Task { await store.restorePurchases() } }
+                        .foregroundStyle(Color.accentColor)
                 }
 
-                Section("Google Drive") {
+                Section(L.t("settings.gdrive")) {
                     if drive.isConnected {
-                        Label(drive.email ?? "Подключено", systemImage: "checkmark.icloud.fill")
+                        Label(drive.email ?? L.t("settings.connected"), systemImage: "checkmark.icloud.fill")
                             .foregroundStyle(.green)
                         if let last = drive.lastSync {
                             HStack {
-                                Text("Последняя синхронизация")
+                                Text(L.t("settings.lastSync"))
                                 Spacer()
                                 Text(last, style: .relative).foregroundStyle(.secondary)
                             }
                         }
                         Button { Task { await drive.backup() } } label: {
                             HStack {
-                                Label("Создать резервную копию", systemImage: "icloud.and.arrow.up")
+                                Label(L.t("settings.backup"), systemImage: "icloud.and.arrow.up")
                                 if drive.isSyncing { Spacer(); ProgressView().scaleEffect(0.8) }
                             }
                         }
                         .disabled(drive.isSyncing)
                         Button { Task { await drive.sync() } } label: {
                             HStack {
-                                Label("Восстановить из Drive", systemImage: "icloud.and.arrow.down")
+                                Label(L.t("settings.restoreDrive"), systemImage: "icloud.and.arrow.down")
                                 if drive.isSyncing { Spacer(); ProgressView().scaleEffect(0.8) }
                             }
                         }
                         .disabled(drive.isSyncing)
                         Button(role: .destructive) { drive.disconnect() } label: {
-                            Label("Отключить", systemImage: "xmark.icloud")
+                            Label(L.t("settings.disconnect"), systemImage: "xmark.icloud")
                         }
                     } else {
                         Button {
@@ -603,16 +839,16 @@ struct SettingsTab: View {
                                 catch { connectError = error.localizedDescription }
                             }
                         } label: {
-                            Label("Подключить Google Drive", systemImage: "icloud.and.arrow.up")
+                            Label(L.t("settings.connectDrive"), systemImage: "icloud.and.arrow.up")
                         }
-                        Text("Читает резервные копии SessionPort. Только ваши файлы.")
+                        Text(L.t("settings.drive.note"))
                             .font(.caption).foregroundStyle(.secondary)
                     }
                 }
 
-                Section("О приложении") {
+                Section(L.t("settings.about")) {
                     HStack {
-                        Text("Версия")
+                        Text(L.t("settings.version"))
                         Spacer()
                         Text(Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0")
                             .foregroundStyle(.secondary)
@@ -628,16 +864,19 @@ struct SettingsTab: View {
                     }
                 }
             }
-            .navigationTitle("Настройки")
+            .navigationTitle(L.t("settings.title"))
+        }
+        .sheet(isPresented: $showKeyboardHelp) {
+            KeyboardSetupSheet(onDone: { showKeyboardHelp = false })
         }
         .sheet(isPresented: $showPaywall) {
-            PaywallView(reason: "Разблокируй безлимитные снэпшоты и синхронизацию")
+            PaywallView(reason: L.t("settings.pro.upgrade"))
         }
-        .alert("Ошибка Google Drive", isPresented: Binding(
+        .alert(L.t("settings.drive.error"), isPresented: Binding(
             get: { connectError != nil },
             set: { if !$0 { connectError = nil } }
         )) {
-            Button("OK") { connectError = nil }
+            Button(L.t("common.ok")) { connectError = nil }
         } message: { Text(connectError ?? "") }
     }
 }
@@ -665,13 +904,130 @@ struct SyncBanner: View {
     }
 }
 
+struct KeyboardSetupBanner: View {
+    let onDone: () -> Void
+    @State private var showSheet = false
+
+    var body: some View {
+        Button { showSheet = true } label: {
+            HStack(spacing: 12) {
+                Image(systemName: "keyboard.fill")
+                    .font(.system(size: 22))
+                    .foregroundStyle(Color.accentColor)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(L.t("kb.banner.title"))
+                        .font(.system(size: 14, weight: .semibold))
+                        .foregroundStyle(.primary)
+                    Text(L.t("kb.banner.sub"))
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                }
+                Spacer()
+                Image(systemName: "chevron.right")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+            }
+            .padding(14)
+            .background(Color.accentColor.opacity(0.07), in: RoundedRectangle(cornerRadius: 12))
+            .overlay(RoundedRectangle(cornerRadius: 12).stroke(Color.accentColor.opacity(0.2), lineWidth: 1))
+        }
+        .buttonStyle(.plain)
+        .padding(.horizontal)
+        .padding(.top, 4)
+        .sheet(isPresented: $showSheet) {
+            KeyboardSetupSheet(onDone: {
+                showSheet = false
+                withAnimation { onDone() }
+            })
+        }
+    }
+}
+
+struct KeyboardSetupSheet: View {
+    let onDone: () -> Void
+
+    private var steps: [(icon: String, title: String, body: String)] {
+        [
+            ("gear",        L.t("kb.step1.title"), L.t("kb.step1.body")),
+            ("plus.circle", L.t("kb.step2.title"), L.t("kb.step2.body")),
+            ("hand.tap",    L.t("kb.step3.title"), L.t("kb.step3.body")),
+            ("globe",       L.t("kb.step4.title"), L.t("kb.step4.body")),
+        ]
+    }
+
+    var body: some View {
+        NavigationStack {
+            List {
+                ForEach(Array(steps.enumerated()), id: \.offset) { index, step in
+                    HStack(alignment: .top, spacing: 14) {
+                        ZStack {
+                            Circle()
+                                .fill(Color.accentColor.opacity(0.12))
+                                .frame(width: 36, height: 36)
+                            Text("\(index + 1)")
+                                .font(.system(size: 15, weight: .bold))
+                                .foregroundStyle(Color.accentColor)
+                        }
+                        VStack(alignment: .leading, spacing: 4) {
+                            Text(step.title)
+                                .font(.system(size: 15, weight: .semibold))
+                            Text(step.body)
+                                .font(.system(size: 13))
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.vertical, 4)
+                    }
+                    .listRowInsets(.init(top: 10, leading: 16, bottom: 10, trailing: 16))
+                }
+
+                Section {
+                    Button {
+                        let url = URL(string: "App-prefs:General&path=Keyboard/KEYBOARDS")
+                            ?? URL(string: UIApplication.openSettingsURLString)!
+                        UIApplication.shared.open(url)
+                    } label: {
+                        HStack {
+                            Spacer()
+                            Label(L.t("kb.openKbSettings"), systemImage: "arrow.up.right.square")
+                                .font(.system(size: 15, weight: .semibold))
+                                .foregroundStyle(.white)
+                            Spacer()
+                        }
+                        .padding(.vertical, 4)
+                    }
+                    .listRowBackground(Color.accentColor)
+                }
+            }
+            .navigationTitle(L.t("kb.sheet.title"))
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button(L.t("common.done")) { onDone() }
+                }
+            }
+        }
+    }
+}
+
 struct FreemiumBanner: View {
     let remaining: Int
     let onUpgrade: () -> Void
+
+    // Russian plural: 1 снэпшот · 2–4 снэпшота · 0/5+ снэпшотов
+    private var noun: String {
+        let mod100 = remaining % 100, mod10 = remaining % 10
+        if (11...14).contains(mod100) { return "снэпшотов" }
+        switch mod10 {
+        case 1:      return "снэпшот"
+        case 2...4:  return "снэпшота"
+        default:     return "снэпшотов"
+        }
+    }
+
     var body: some View {
         HStack {
             VStack(alignment: .leading, spacing: 2) {
-                Text("Осталось \(remaining) снэпшот\(remaining == 1 ? "" : "а")")
+                Text("Осталось \(remaining) \(noun)")
                     .font(.system(size: 13, weight: .medium))
                 Text("Перейди на Pro для безлимита").font(.system(size: 11)).foregroundStyle(.secondary)
             }
@@ -697,7 +1053,7 @@ struct SnapshotListRow: View {
                 Text(snapshot.title).font(.system(size: 15, weight: .medium)).lineLimit(1)
                 Spacer()
                 if let proj = snapshot.project {
-                    Text(proj).font(.system(size: 10)).foregroundStyle(.accentColor)
+                    Text(proj).font(.system(size: 10)).foregroundStyle(Color.accentColor)
                         .padding(.horizontal, 5).padding(.vertical, 2)
                         .background(Color.accentColor.opacity(0.1), in: Capsule())
                 }

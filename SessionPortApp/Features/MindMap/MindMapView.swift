@@ -1,9 +1,35 @@
 import SwiftUI
 import UIKit
 
+// MARK: - Map controller — drives zoom + fork/link modes
+
+@MainActor
+final class MapController: ObservableObject {
+    enum Mode: Equatable { case none, fork, link }
+    @Published var mode: Mode = .none
+    @Published var linkSource: String? = nil
+    @Published var banner: String? = nil
+    weak var canvas: MapCanvasView?
+
+    func zoomIn()  { canvas?.zoom(by: 1.25) }
+    func zoomOut() { canvas?.zoom(by: 0.8) }
+    func reset()   { canvas?.resetView() }
+
+    func startFork() {
+        mode = .fork; linkSource = nil
+        banner = "Ветка: выберите узел — от него пойдёт следующий перенос"
+    }
+    func startLink() {
+        mode = .link; linkSource = nil
+        banner = "Связь: выберите родителя"
+    }
+    func cancel() { mode = .none; linkSource = nil; banner = nil }
+}
+
 // MARK: - Container (no Dashboard — just the interactive graph)
 
 struct MindMapContainerView: View {
+    @StateObject private var map = MapController()
     @State private var snapshots = SharedStorage.shared.activeSnapshots
     @State private var selectedProject: String? = nil
     @State private var selectedId: String? = nil
@@ -18,7 +44,6 @@ struct MindMapContainerView: View {
     var body: some View {
         NavigationStack {
             VStack(spacing: 0) {
-                // Project filter chips
                 if !projects.isEmpty {
                     ScrollView(.horizontal, showsIndicators: false) {
                         HStack(spacing: 6) {
@@ -37,13 +62,26 @@ struct MindMapContainerView: View {
                     Divider()
                 }
 
-                // Map toolbar
-                MapToolbarView()
+                MapToolbarView(map: map)
 
-                // Interactive canvas
+                // Mode banner
+                if let banner = map.banner {
+                    HStack(spacing: 8) {
+                        Text(banner)
+                            .font(.system(size: 12, weight: .medium))
+                            .foregroundStyle(Color.accentColor)
+                        Spacer()
+                        if map.mode != .none {
+                            Button("Отмена") { map.cancel() }
+                                .font(.system(size: 12))
+                        }
+                    }
+                    .padding(.horizontal, 16).padding(.vertical, 8)
+                    .background(Color.accentColor.opacity(0.08))
+                }
+
                 ZStack {
-                    Color(UIColor.systemGroupedBackground)
-                        .ignoresSafeArea()
+                    Color(UIColor.systemGroupedBackground).ignoresSafeArea()
 
                     if displayed.isEmpty {
                         ContentUnavailableView(
@@ -54,12 +92,13 @@ struct MindMapContainerView: View {
                     } else {
                         MapCanvasRepresentable(
                             snapshots: displayed,
-                            selectedId: $selectedId
+                            selectedId: selectedId,
+                            register: { map.canvas = $0 },
+                            onTap: handleTap
                         )
                         .ignoresSafeArea(edges: .bottom)
 
-                        // Selected snapshot info panel (bottom overlay)
-                        if let id = selectedId,
+                        if map.mode == .none, let id = selectedId,
                            let snap = displayed.first(where: { $0.id == id }) {
                             MapInfoPanel(snapshot: snap, onDismiss: { selectedId = nil })
                                 .padding(.horizontal, 12)
@@ -74,6 +113,33 @@ struct MindMapContainerView: View {
             .navigationTitle("Mind Map")
             .navigationBarTitleDisplayMode(.inline)
             .onAppear { snapshots = SharedStorage.shared.activeSnapshots }
+        }
+    }
+
+    private func handleTap(_ id: String) {
+        switch map.mode {
+        case .none:
+            selectedId = id.isEmpty ? nil : (selectedId == id ? nil : id)
+
+        case .fork:
+            guard !id.isEmpty, let node = snapshots.first(where: { $0.id == id }) else {
+                map.cancel(); return
+            }
+            SharedStorage.shared.kbForkParentId = id
+            SharedStorage.shared.kbProject = node.project ?? "__new__"
+            map.mode = .none
+            map.banner = "Ветка от «\(node.title.prefix(24))» — открой клавиатуру и сделай перенос"
+
+        case .link:
+            guard !id.isEmpty else { map.cancel(); return }
+            if let parent = map.linkSource {
+                SharedStorage.shared.setParent(of: id, to: parent)   // id becomes child of parent
+                snapshots = SharedStorage.shared.activeSnapshots
+                map.cancel()
+            } else {
+                map.linkSource = id
+                map.banner = "Связь: теперь выберите потомка"
+            }
         }
     }
 }
@@ -104,14 +170,20 @@ struct ProjectChip: View {
 // MARK: - Toolbar
 
 struct MapToolbarView: View {
+    @ObservedObject var map: MapController
+
     var body: some View {
         HStack(spacing: 6) {
-            ToolBtn(label: "+ Ветка", color: .green)
-            ToolBtn(label: "🔗 Связь", color: .blue)
+            ToolBtn(label: "+ Ветка", color: .green, active: map.mode == .fork) {
+                map.mode == .fork ? map.cancel() : map.startFork()
+            }
+            ToolBtn(label: "🔗 Связь", color: .blue, active: map.mode == .link) {
+                map.mode == .link ? map.cancel() : map.startLink()
+            }
             Spacer()
-            ToolBtn(label: "+", color: .secondary, width: 32)
-            ToolBtn(label: "−", color: .secondary, width: 32)
-            ToolBtn(label: "⊙", color: .secondary, width: 32)
+            ToolBtn(label: "+", color: .secondary, width: 32) { map.zoomIn() }
+            ToolBtn(label: "−", color: .secondary, width: 32) { map.zoomOut() }
+            ToolBtn(label: "⊙", color: .secondary, width: 32) { map.reset() }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
@@ -124,17 +196,21 @@ struct ToolBtn: View {
     let label: String
     let color: Color
     var width: CGFloat? = nil
+    var active: Bool = false
+    let action: () -> Void
 
     var body: some View {
-        Button {} label: {
+        Button(action: action) {
             Text(label)
                 .font(.system(size: 11, weight: .medium))
-                .foregroundStyle(color == .secondary ? .secondary : color)
+                .foregroundStyle(active ? .white : (color == .secondary ? .secondary : color))
                 .frame(width: width)
                 .padding(.horizontal, width == nil ? 10 : 0)
                 .padding(.vertical, 5)
-                .background(color == .secondary ? Color(UIColor.secondarySystemBackground) : color.opacity(0.1),
-                            in: RoundedRectangle(cornerRadius: 7))
+                .background(
+                    active ? color : (color == .secondary ? Color(UIColor.secondarySystemBackground) : color.opacity(0.1)),
+                    in: RoundedRectangle(cornerRadius: 7)
+                )
                 .overlay(RoundedRectangle(cornerRadius: 7).stroke(color == .secondary ? Color.clear : color.opacity(0.25), lineWidth: 0.5))
         }
         .buttonStyle(.plain)
@@ -172,7 +248,7 @@ struct MapInfoPanel: View {
                 Text(snapshot.createdAt, style: .relative)
                     .font(.caption).foregroundStyle(.secondary)
                 if let proj = snapshot.project {
-                    Text(proj).font(.caption).foregroundStyle(.accentColor)
+                    Text(proj).font(.caption).foregroundStyle(Color.accentColor)
                         .padding(.horizontal, 6).padding(.vertical, 2)
                         .background(Color.accentColor.opacity(0.1), in: Capsule())
                 }
@@ -186,7 +262,7 @@ struct MapInfoPanel: View {
             }
 
             Button {
-                copyWithExpiration(snapshot.contextText())
+                copyWithExpiration(snapshot.restoreContext())
                 showCopied = true
                 Task { try? await Task.sleep(for: .seconds(1.5)); showCopied = false }
             } label: {
@@ -217,31 +293,20 @@ struct MapInfoPanel: View {
 
 struct MapCanvasRepresentable: UIViewRepresentable {
     let snapshots: [Snapshot]
-    @Binding var selectedId: String?
-
-    func makeCoordinator() -> Coordinator { Coordinator(binding: $selectedId) }
+    let selectedId: String?
+    let register: (MapCanvasView) -> Void   // hand the view to MapController for zoom
+    let onTap: (String) -> Void             // "" == background tap
 
     func makeUIView(context: Context) -> MapCanvasView {
         let v = MapCanvasView()
-        v.onNodeTap = { [coordinator = context.coordinator] id in
-            // Empty string = tap on canvas background → deselect
-            if id.isEmpty {
-                coordinator.binding.wrappedValue = nil
-            } else {
-                coordinator.binding.wrappedValue = coordinator.binding.wrappedValue == id ? nil : id
-            }
-        }
+        v.onNodeTap = onTap
+        register(v)
         return v
     }
 
     func updateUIView(_ v: MapCanvasView, context: Context) {
-        context.coordinator.binding = $selectedId
+        v.onNodeTap = onTap
         v.setSnapshots(snapshots, selectedId: selectedId)
-    }
-
-    class Coordinator {
-        var binding: Binding<String?>
-        init(binding: Binding<String?>) { self.binding = binding }
     }
 }
 
@@ -283,33 +348,66 @@ final class MapCanvasView: UIView {
         setNeedsDisplay()
     }
 
+    // MARK: - Zoom controls (toolbar)
+
+    func zoom(by factor: CGFloat) {
+        scale = max(0.3, min(3.0, scale * factor))
+        setNeedsDisplay()
+    }
+
+    func resetView() {
+        scale = 1
+        if snapshots.isEmpty {
+            offset = .zero
+        } else {
+            let allX = positions.values.map { $0.x }
+            let minX = allX.min() ?? 0
+            let maxX = allX.max() ?? bounds.width
+            offset = CGPoint(x: bounds.midX - (minX + maxX) / 2, y: 20)
+        }
+        setNeedsDisplay()
+    }
+
     private func recomputeLayout() {
         positions = [:]
         colorMap = [:]
-        let roots = snapshots.filter { $0.parentId == nil }
+        // A node is a root if it has no parent OR its parent is not in the current
+        // set (parent was trashed or filtered out by project). Without this,
+        // descendants of a missing parent would never be positioned and would
+        // silently vanish from the map — broken inheritance display.
+        let idSet = Set(snapshots.map { $0.id })
+        let roots = snapshots.filter { snap in
+            guard let pid = snap.parentId else { return true }
+            return !idSet.contains(pid)
+        }
         let colW: CGFloat = max(120, bounds.width / CGFloat(max(roots.count, 1)))
         let rowH: CGFloat = 110
 
+        var visited = Set<String>()
         for (ci, root) in roots.enumerated() {
             colorMap[root.id] = nodeColors[ci % nodeColors.count]
             let cx = colW * CGFloat(ci) + colW / 2
             positions[root.id] = CGPoint(x: cx, y: 60)
+            visited.insert(root.id)
             layoutChildren(of: root.id, parentPos: CGPoint(x: cx, y: 60),
-                           depth: 1, rowH: rowH, colW: colW, colorIndex: ci)
+                           depth: 1, rowH: rowH, colW: colW, colorIndex: ci, visited: &visited)
         }
     }
 
     private func layoutChildren(of parentId: String, parentPos: CGPoint,
-                                depth: Int, rowH: CGFloat, colW: CGFloat, colorIndex: Int) {
-        let children = snapshots.filter { $0.parentId == parentId }
+                                depth: Int, rowH: CGFloat, colW: CGFloat, colorIndex: Int,
+                                visited: inout Set<String>) {
+        // Guard against cycles in malformed/imported data (would otherwise recurse forever)
+        let children = snapshots.filter { $0.parentId == parentId && !visited.contains($0.id) }
         let spread = colW
         for (i, child) in children.enumerated() {
+            visited.insert(child.id)
             let offset = (CGFloat(i) - CGFloat(children.count - 1) / 2) * spread
             let pos = CGPoint(x: parentPos.x + offset, y: parentPos.y + rowH)
             positions[child.id] = pos
             colorMap[child.id] = nodeColors[colorIndex % nodeColors.count]
             layoutChildren(of: child.id, parentPos: pos, depth: depth + 1,
-                           rowH: rowH, colW: colW, colorIndex: colorIndex)
+                           rowH: rowH, colW: colW, colorIndex: colorIndex, visited: &visited)
         }
     }
 
@@ -346,7 +444,7 @@ final class MapCanvasView: UIView {
     }
 
     private func drawNodes(_ ctx: CGContext) {
-        for (i, snap) in snapshots.enumerated() {
+        for snap in snapshots {
             guard let pos = positions[snap.id] else { continue }
             let col = colorMap[snap.id] ?? .systemGray
             let isRoot = snap.parentId == nil

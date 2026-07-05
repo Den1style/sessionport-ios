@@ -96,6 +96,36 @@ struct Snapshot: Codable, Identifiable, Hashable {
         }
         return result
     }
+
+    // Restoration prompt: prepends layered instructions to the raw context payload,
+    // mirroring the browser extension's restore flow. Fields referenced match the
+    // flat snapshot schema actually stored on iOS (goal / decisions / rejected /
+    // state / next_step) — NOT the extension's nested v1.1 keys, which iOS discards
+    // on ingestion. Bilingual via kbLangCode.
+    @MainActor
+    func restoreContext(includeFiles: Bool = true) -> String {
+        let isEn = SharedStorage.shared.kbLangCode == "en"
+        let preamble = isEn ? """
+        SessionPort PROTOCOL — CONTEXT RESTORATION.
+
+        Read the snapshot and restore the working context:
+        1. goal — accept as the project's identity and continuation instruction
+        2. decisions — settled choices; treat as already agreed
+        3. rejected — never suggest these again, no matter how reasonable they look
+        4. state — where we are; next_step is your first action
+        Then continue the work from next_step.
+        """ : """
+        ПРОТОКОЛ SessionPort — ВОССТАНОВЛЕНИЕ КОНТЕКСТА.
+
+        Прочитай слепок и восстанови рабочий контекст:
+        1. goal — прими как идентичность проекта и инструкцию-продолжение
+        2. decisions — принятые решения; считай уже согласованными
+        3. rejected — никогда не предлагай это повторно, каким бы разумным оно ни казалось
+        4. state — где мы; next_step — твоё первое действие
+        Затем продолжи работу с next_step.
+        """
+        return preamble + "\n\n" + contextText(includeFiles: includeFiles)
+    }
 }
 
 // MARK: - Parsing
@@ -126,8 +156,14 @@ extension Snapshot {
     // Parses LLM output JSON (iOS SessionPort schema v1.1 with meta/dna/decisions/state).
     static func fromLLMOutput(_ text: String, llmSource: String = "") -> Snapshot? {
         let jsonStr = extractJSONString(from: text)
-        guard let data = jsonStr.data(using: .utf8),
-              let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return nil }
+        var parsed = decodeObject(jsonStr)
+        if parsed == nil {
+            // Chat UIs render the model's straight quotes as smart “curly” ones;
+            // text copied by selection then fails strict JSON parsing. Normalize
+            // and retry before giving up.
+            parsed = decodeObject(normalizeSmartQuotes(jsonStr))
+        }
+        guard let obj = parsed else { return nil }
 
         let meta  = obj["meta"]  as? [String: Any]
         let dna   = obj["dna"]   as? [String: Any]
@@ -166,8 +202,7 @@ extension Snapshot {
 
         var createdAt = Date()
         if let dateStr = meta?["date"] as? String {
-            let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
-            createdAt = f.date(from: dateStr) ?? Date()
+            createdAt = parseDateOnly(dateStr) ?? Date()
         }
 
         return Snapshot(
@@ -182,6 +217,24 @@ extension Snapshot {
             project: project,
             createdAt: createdAt
         )
+    }
+
+    private static func decodeObject(_ s: String) -> [String: Any]? {
+        guard let data = s.data(using: .utf8) else { return nil }
+        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+    }
+
+    // “ ” „ → "  and  ‘ ’ → '  (only used as a retry after strict parsing fails,
+    // so valid JSON with intentional curly quotes inside values is never touched)
+    static func normalizeSmartQuotes(_ s: String) -> String {
+        var t = s
+        for q in ["\u{201C}", "\u{201D}", "\u{201E}"] {
+            t = t.replacingOccurrences(of: q, with: "\"")
+        }
+        for q in ["\u{2018}", "\u{2019}"] {
+            t = t.replacingOccurrences(of: q, with: "'")
+        }
+        return t
     }
 
     // Extracts JSON string from LLM response text (handles markdown blocks and SP markers).
@@ -206,32 +259,82 @@ extension Snapshot {
     }
 
     static func fromRawDict(_ d: [String: Any]) -> Snapshot? {
-        guard let id = (d["transfer_id"] as? String)?.truncated(kMaxShortStr), !id.isEmpty,
-              let title = (d["title"] as? String)?.truncated(kMaxShortStr) else { return nil }
+        // Browser records nest the anchors under `payload`; older/flat formats
+        // keep them at the top level. Support both.
+        let payload = d["payload"] as? [String: Any]
+        let meta    = (payload?["meta"]    as? [String: Any]) ?? (d["meta"]    as? [String: Any])
+        let core    = (payload?["core"]    as? [String: Any]) ?? (d["core"]    as? [String: Any])
+        let ledger  = (payload?["ledger"]  as? [String: Any]) ?? (d["ledger"]  as? [String: Any])
+        let runtime = (payload?["runtime"] as? [String: Any]) ?? (d["runtime"] as? [String: Any])
 
-        let runtime = d["runtime"] as? [String: Any]
-        let ledger  = d["ledger"]  as? [String: Any]
-        let core    = d["core"]    as? [String: Any]
+        // id: prefer transfer_id (top or meta), fall back to snapshot_id
+        let rawId = (d["transfer_id"] as? String)
+            ?? (meta?["transfer_id"] as? String)
+            ?? (d["snapshot_id"] as? String)
+        guard let id = rawId?.truncated(kMaxShortStr), !id.isEmpty else { return nil }
+
+        let goal    = (core?["intent"] as? String)?.truncated(kMaxLongStr) ?? ""
+        let project = (meta?["project"] as? String).flatMap { $0.isEmpty ? nil : $0 }
+
+        // Title: explicit title if present, else derive from goal/project.
+        let title: String
+        if let t = (d["title"] as? String)?.truncated(kMaxShortStr), !t.isEmpty {
+            title = t
+        } else if !goal.isEmpty {
+            title = String(goal.prefix(80))
+        } else if let p = project {
+            title = "[\(p)] Context"
+        } else {
+            title = "Context"
+        }
+
+        let llmRaw = (d["source_host"] as? String)
+            ?? (d["llm_source"] as? String)
+            ?? (meta?["llm_source"] as? String)
 
         return Snapshot(
             id:        id,
-            parentId:  (d["parent_transfer_id"] as? String)?.truncated(kMaxShortStr),
+            parentId:  (d["parent_transfer_id"] as? String)?.truncated(kMaxShortStr)
+                        ?? (meta?["parent_transfer_id"] as? String)?.truncated(kMaxShortStr),
             title:     title,
-            goal:      (core?["intent"] as? String)?.truncated(kMaxLongStr) ?? "",
+            goal:      goal,
             decisions: ((ledger?["critical_decisions"] as? [String]) ?? [])
                            .prefix(kMaxArrayLen).map { $0.truncated(kMaxShortStr) },
             rejected:  ((ledger?["veto_list"] as? [String]) ?? [])
                            .prefix(kMaxArrayLen).map { $0.truncated(kMaxShortStr) },
             state:     (runtime?["current_status"] as? String)?.truncated(kMaxShortStr) ?? "",
             nextStep:  (runtime?["immediate_next_step"] as? String)?.truncated(kMaxLongStr) ?? "",
-            llmSource: (d["llm_source"] as? String)?.truncated(50) ?? "unknown",
-            createdAt: parseDate(d) ?? Date()
+            llmSource: SnapshotInterchange.normalizeLLM(llmRaw),
+            project:   project,
+            createdAt: parseDate(d, meta: meta) ?? Date()
         )
     }
 
-    private static func parseDate(_ d: [String: Any]) -> Date? {
-        guard let meta = d["meta"] as? [String: Any], let s = meta["date"] as? String else { return nil }
-        let f = DateFormatter(); f.dateFormat = "yyyy-MM-dd"
+    private static func parseDate(_ d: [String: Any], meta: [String: Any]?) -> Date? {
+        // Prefer top-level ISO `created_at`, then meta.date (yyyy-MM-dd)
+        if let iso = d["created_at"] as? String, let date = parseISO(iso) {
+            return date
+        }
+        if let s = meta?["date"] as? String, let date = parseDateOnly(s) {
+            return date
+        }
+        return nil
+    }
+
+    // Browser exports (JS toISOString) carry fractional seconds, iOS exports don't —
+    // a plain ISO8601DateFormatter rejects the former, silently resetting dates.
+    private static func parseISO(_ s: String) -> Date? {
+        let f = ISO8601DateFormatter()
+        if let d = f.date(from: s) { return d }
+        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+        return f.date(from: s)
+    }
+
+    // en_US_POSIX so "yyyy-MM-dd" parses correctly regardless of the device calendar
+    private static func parseDateOnly(_ s: String) -> Date? {
+        let f = DateFormatter()
+        f.dateFormat = "yyyy-MM-dd"
+        f.locale = Locale(identifier: "en_US_POSIX")
         return f.date(from: s)
     }
 }

@@ -11,6 +11,8 @@ settings:
     SWIFT_VERSION: "6.0"
     IPHONEOS_DEPLOYMENT_TARGET: "17.0"
     TARGETED_DEVICE_FAMILY: "1"   # iPhone only
+    SWIFT_STRICT_CONCURRENCY: complete    # data races → compile error
+    SWIFT_TREAT_WARNINGS_AS_ERRORS: YES   # warnings → build failure
 
 targets:
 
@@ -24,7 +26,7 @@ targets:
       - path: SessionPortCore
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.sessionport.app
+        PRODUCT_BUNDLE_IDENTIFIER: com.lusine.sessionport
         DEVELOPMENT_TEAM: ""          # fill in your Team ID
         CODE_SIGN_STYLE: Automatic
         INFOPLIST_FILE: SessionPortApp/App/Info.plist
@@ -32,11 +34,10 @@ targets:
       path: SessionPortApp/SessionPort.entitlements
       properties:
         com.apple.security.application-groups:
-          - group.com.sessionport.app
+          - group.com.lusine.sessionport
         keychain-access-groups:
-          - $(AppIdentifierPrefix)com.sessionport.app
+          - $(AppIdentifierPrefix)com.lusine.sessionport
     dependencies:
-      - sdk: StoreKit.framework
       - sdk: AuthenticationServices.framework
       - target: SessionPortKeyboard
         embed: true
@@ -54,7 +55,7 @@ targets:
       - path: SessionPortCore
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.sessionport.app.keyboard
+        PRODUCT_BUNDLE_IDENTIFIER: com.lusine.sessionport.keyboard
         DEVELOPMENT_TEAM: ""
         CODE_SIGN_STYLE: Automatic
         INFOPLIST_FILE: SessionPortKeyboard/Info.plist
@@ -62,7 +63,7 @@ targets:
       path: SessionPortKeyboard/SessionPortKeyboard.entitlements
       properties:
         com.apple.security.application-groups:
-          - group.com.sessionport.app
+          - group.com.lusine.sessionport
         # Note: RequestsOpenAccess belongs in Info.plist (NSExtensionAttributes), not entitlements
 
   # ─── Unit Tests ───────────────────────────────────────────────────
@@ -73,6 +74,7 @@ targets:
       - path: SessionPortTests
     settings:
       base:
-        PRODUCT_BUNDLE_IDENTIFIER: com.sessionport.app.tests
+        PRODUCT_BUNDLE_IDENTIFIER: com.lusine.sessionport.tests
+        GENERATE_INFOPLIST_FILE: YES
     dependencies:
       - target: SessionPort

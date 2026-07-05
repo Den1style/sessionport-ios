@@ -1,0 +1,92 @@
+import Foundation
+import CryptoKit
+
+/// Produces backup JSON in the SAME format the browser extension reads/writes
+/// (schema_version 1, nested `payload` with meta/core/ledger/runtime).
+/// This makes iOS ⇄ browser transfers fully round-trippable.
+///
+/// Note: binary file attachments (snapshot_files/blobs) are not cross-exported
+/// in v1 — only the textual context anchors transfer. The arrays are emitted
+/// empty so the extension importer accepts the file without error.
+enum SnapshotInterchange {
+
+    static func exportJSON(_ snapshots: [Snapshot], prettyPrinted: Bool = true) -> Data {
+        let iso = ISO8601DateFormatter()
+        let dateOnly = DateFormatter()
+        dateOnly.dateFormat = "yyyy-MM-dd"
+        dateOnly.locale = Locale(identifier: "en_US_POSIX")
+
+        let records: [[String: Any]] = snapshots.map { snap in
+            var meta: [String: Any] = [
+                "transfer_id": snap.id,
+                "project": snap.project ?? "",
+                "version": "1.1",
+                "date": dateOnly.string(from: snap.createdAt),
+                "llm_source": snap.llmSource,
+            ]
+            if let parent = snap.parentId { meta["parent_transfer_id"] = parent }
+
+            let payload: [String: Any] = [
+                "meta": meta,
+                "core": ["intent": snap.goal],
+                "ledger": [
+                    "critical_decisions": snap.decisions,
+                    "veto_list": snap.rejected,
+                ],
+                "runtime": [
+                    "current_status": snap.state,
+                    "immediate_next_step": snap.nextStep,
+                    "last_3_decisions": Array(snap.decisions.prefix(3)),
+                ],
+            ]
+
+            // content_hash over a deterministic payload serialization (matches
+            // the extension's sha256(JSON.stringify(payload)) closely enough for dedup)
+            let payloadData = (try? JSONSerialization.data(
+                withJSONObject: payload, options: [.sortedKeys])) ?? Data()
+            let hash = SHA256.hash(data: payloadData)
+                .map { String(format: "%02x", $0) }.joined()
+
+            var record: [String: Any] = [
+                "snapshot_id": snap.id,
+                "created_at": iso.string(from: snap.createdAt),
+                "source_host": snap.llmSource,
+                "project": snap.project ?? "unknown",
+                "version": "1.1",
+                "transfer_id": snap.id,
+                "content_hash": hash,
+                "payload": payload,
+                "size_bytes": payloadData.count,
+            ]
+            if let parent = snap.parentId { record["parent_transfer_id"] = parent }
+            return record
+        }
+
+        let wrapper: [String: Any] = [
+            "schema_version": 1,
+            "exported_at": iso.string(from: Date()),
+            "app": "SessionPort iOS",
+            "snapshots": records,
+            "refs": [],
+            "meta": [],
+            "snapshot_files": [],
+            "blobs": [],
+        ]
+
+        let options: JSONSerialization.WritingOptions = prettyPrinted ? [.prettyPrinted] : []
+        return (try? JSONSerialization.data(withJSONObject: wrapper, options: options)) ?? Data()
+    }
+
+    /// Normalizes a browser host or llm name to the iOS short name.
+    static func normalizeLLM(_ raw: String?) -> String {
+        guard let raw = raw?.lowercased(), !raw.isEmpty else { return "unknown" }
+        if raw.contains("claude")      { return "claude" }
+        if raw.contains("openai") || raw.contains("chatgpt") { return "chatgpt" }
+        if raw.contains("gemini") || raw.contains("bard") || raw.contains("google") { return "gemini" }
+        if raw.contains("perplexity")  { return "perplexity" }
+        if raw.contains("grok") || raw.contains("x.com") || raw.contains("twitter") { return "grok" }
+        if raw.contains("mistral")     { return "mistral" }
+        if raw.contains("deepseek")    { return "deepseek" }
+        return raw
+    }
+}
