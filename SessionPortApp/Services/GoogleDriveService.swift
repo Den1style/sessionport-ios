@@ -12,6 +12,9 @@ private let kClientID    = "747235685517-rrj7cgn3gchhte3sl61v35niibis0jbe.apps.g
 private let kRedirectURI = "com.googleusercontent.apps.747235685517-rrj7cgn3gchhte3sl61v35niibis0jbe:/oauth2callback"
 private let kScope       = "https://www.googleapis.com/auth/drive.file"
 private let kFolderName  = "SessionPort Backups"
+// Canonical two-way sync file — same name and folder as the extension
+// (google-drive.js GDRIVE_SYNC_FILE), so both platforms converge on one file.
+private let kSyncFileName = "sessionport-sync.json"
 private let kKeychainSvc = "com.lusine.sessionport"
 private let kKeychainAcc = "google_refresh_token"
 
@@ -112,7 +115,14 @@ final class GoogleDriveService: ObservableObject {
         lastSync = nil
     }
 
-    // MARK: - Sync (restore latest backup from Drive)
+    // MARK: - Sync (two-way, canonical sessionport-sync.json — extension parity)
+    //
+    // Mirrors the extension's gdrive_syncNow (google-drive.js): pull the
+    // canonical file, merge per-snapshot last-write-wins by state_at, push the
+    // merged whole-DB export back to the same file. Both platforms on one
+    // Google account converge to the same database; deletions propagate and
+    // nothing resurrects (previously this method blindly restored the latest
+    // backup file — one-way, no merge, resurrected trashed snapshots).
 
     func sync() async {
         guard isConnected, !isSyncing else { return }
@@ -122,16 +132,72 @@ final class GoogleDriveService: ObservableObject {
         do {
             let token    = try await validToken()
             let folderID = try await ensureFolder(token: token)
-            let files    = try await listFiles(token: token, folderID: folderID)
-            guard let latest = files.first else { return }
-            let data     = try await downloadFile(token: token, fileID: latest.id)
-            let snaps    = Snapshot.fromBackupJSON(data)
-            snaps.forEach { SharedStorage.shared.addSnapshot($0) }
+            let fileID   = try await findSyncFile(token: token, folderID: folderID)
+
+            // 1) Pull remote state and merge (LWW by state_at).
+            if let id = fileID {
+                let data = try await downloadFile(token: token, fileID: id)
+                SharedStorage.shared.applySyncMerge(Snapshot.fromBackupJSON(data))
+            } else {
+                // No canonical file yet (extension < v1.0.5 or fresh account):
+                // seed once from the newest classic backup so existing browser
+                // data arrives, then create the canonical file below.
+                let files = try await listFiles(token: token, folderID: folderID)
+                if let latest = files.first {
+                    let data = try await downloadFile(token: token, fileID: latest.id)
+                    SharedStorage.shared.applySyncMerge(Snapshot.fromBackupJSON(data))
+                }
+            }
+
+            // 2) Push the merged whole DB — including trashed snapshots with
+            // deleted_at/state_at, so deletes reach the other device.
+            let merged = SnapshotInterchange.exportJSON(
+                SharedStorage.shared.snapshots, prettyPrinted: false)
+            if let id = fileID {
+                try await patchFile(token: token, fileID: id, data: merged)
+            } else {
+                try await uploadMultipart(named: kSyncFileName, token: token,
+                                          folderID: folderID, data: merged)
+            }
+
             SharedStorage.shared.driveLastSync = Date()
             lastSync = Date()
         } catch {
             syncError = error.localizedDescription
         }
+    }
+
+    // Auto-sync on app open, throttled to once per minute (extension parity:
+    // popup-open autosync ≤ 1/min).
+    func autoSyncIfNeeded() async {
+        guard isConnected, !isSyncing else { return }
+        if let last = SharedStorage.shared.driveLastSync,
+           Date().timeIntervalSince(last) < 60 { return }
+        await sync()
+    }
+
+    private func findSyncFile(token: String, folderID: String) async throws -> String? {
+        let q = "name='\(kSyncFileName)' and '\(folderID)' in parents and trashed=false"
+        struct FL: Decodable { let files: [DriveFile] }
+        let r = try await authedGET(
+            "https://www.googleapis.com/drive/v3/files?q=\(q.urlEncoded)&fields=files(id,name)&pageSize=1",
+            token: token, as: FL.self
+        )
+        return r.files.first?.id
+    }
+
+    private func patchFile(token: String, fileID: String, data: Data) async throws {
+        guard fileID.range(of: #"^[A-Za-z0-9_\-]{1,200}$"#, options: .regularExpression) != nil else {
+            throw DriveError.invalidFileID
+        }
+        var req = URLRequest(url: URL(string:
+            "https://www.googleapis.com/upload/drive/v3/files/\(fileID)?uploadType=media&fields=id")!)
+        req.httpMethod = "PATCH"
+        req.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        req.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        req.httpBody = data
+        let (_, resp) = try await URLSession.shared.data(for: req)
+        guard (resp as? HTTPURLResponse)?.statusCode == 200 else { throw DriveError.uploadFailed }
     }
 
     // MARK: - Backup (upload current snapshots to Drive)
@@ -162,7 +228,11 @@ final class GoogleDriveService: ObservableObject {
     }
 
     private func uploadBackup(token: String, folderID: String, data: Data) async throws {
-        let filename  = "sessionport-backup-\(Int(Date().timeIntervalSince1970)).json"
+        let filename = "sessionport-backup-\(Int(Date().timeIntervalSince1970)).json"
+        try await uploadMultipart(named: filename, token: token, folderID: folderID, data: data)
+    }
+
+    private func uploadMultipart(named filename: String, token: String, folderID: String, data: Data) async throws {
         let boundary  = UUID().uuidString.replacingOccurrences(of: "-", with: "")
         let metaJSON  = try JSONSerialization.data(withJSONObject: ["name": filename, "parents": [folderID]])
 

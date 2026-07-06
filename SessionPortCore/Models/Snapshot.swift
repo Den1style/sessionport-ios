@@ -62,7 +62,19 @@ struct Snapshot: Codable, Identifiable, Hashable {
     // transfer and export use this when present, so nothing is ever flattened.
     var rawPayload: String?
 
+    // Lifecycle timestamp for cross-device sync — bumped on soft-delete/restore,
+    // drives last-write-wins in applySyncMerge (mirrors extension's state_at).
+    var stateAt: Date?
+
+    // true only for snapshots captured on THIS device (keyboard Load) —
+    // synced/imported snapshots don't count toward the free limit.
+    var capturedOnDevice: Bool
+
     var isTrashed: Bool { deletedAt != nil }
+
+    // Sync stamp: state_at wins, else deletion time, else creation time —
+    // identical to the extension's `stamp()` in applySyncMerge (db.js).
+    var syncStamp: Date { stateAt ?? deletedAt ?? createdAt }
 
     init(
         id: String = UUID().uuidString,
@@ -84,7 +96,9 @@ struct Snapshot: Codable, Identifiable, Hashable {
         openThreads: [String] = [],
         artifacts: [String] = [],
         validation: SnapshotValidation? = nil,
-        rawPayload: String? = nil
+        rawPayload: String? = nil,
+        stateAt: Date? = nil,
+        capturedOnDevice: Bool = false
     ) {
         self.id = id; self.parentId = parentId; self.title = title
         self.goal = goal; self.decisions = decisions; self.rejected = rejected
@@ -95,6 +109,7 @@ struct Snapshot: Codable, Identifiable, Hashable {
         self.instructions = instructions; self.openThreads = openThreads
         self.artifacts = artifacts; self.validation = validation
         self.rawPayload = rawPayload
+        self.stateAt = stateAt; self.capturedOnDevice = capturedOnDevice
     }
 
     enum CodingKeys: String, CodingKey {
@@ -106,6 +121,8 @@ struct Snapshot: Codable, Identifiable, Hashable {
         case trajectory, constraints, instructions, artifacts, validation
         case openThreads = "open_threads"
         case rawPayload = "raw_payload"
+        case stateAt = "state_at"
+        case capturedOnDevice = "captured_on_device"
     }
 
     // Custom decode: rich fields are decodeIfPresent so snapshots stored in the
@@ -132,6 +149,8 @@ struct Snapshot: Codable, Identifiable, Hashable {
         artifacts     = try c.decodeIfPresent([String].self, forKey: .artifacts) ?? []
         validation    = try c.decodeIfPresent(SnapshotValidation.self, forKey: .validation)
         rawPayload    = try c.decodeIfPresent(String.self, forKey: .rawPayload)
+        stateAt       = try c.decodeIfPresent(Date.self, forKey: .stateAt)
+        capturedOnDevice = try c.decodeIfPresent(Bool.self, forKey: .capturedOnDevice) ?? false
     }
 
     // Custom encode: rich fields are emitted only when non-empty, so contextText()
@@ -158,6 +177,8 @@ struct Snapshot: Codable, Identifiable, Hashable {
         if !artifacts.isEmpty    { try c.encode(artifacts,    forKey: .artifacts) }
         try c.encodeIfPresent(validation, forKey: .validation)
         if let r = rawPayload, !r.isEmpty { try c.encode(r, forKey: .rawPayload) }
+        try c.encodeIfPresent(stateAt, forKey: .stateAt)
+        if capturedOnDevice { try c.encode(true, forKey: .capturedOnDevice) }
     }
 
     // Full context text including file contents.
@@ -475,7 +496,7 @@ extension Snapshot {
             raw = s
         }
 
-        return Snapshot(
+        var snapshot = Snapshot(
             id:        id,
             parentId:  (d["parent_transfer_id"] as? String)?.truncated(kMaxShortStr)
                         ?? (meta?["parent_transfer_id"] as? String)?.truncated(kMaxShortStr),
@@ -494,8 +515,12 @@ extension Snapshot {
             openThreads: rich.openThreads,
             artifacts: rich.artifacts,
             validation: rich.validation,
-            rawPayload: raw
+            rawPayload: raw,
+            stateAt: (d["state_at"] as? String).flatMap(parseISO)
         )
+        // Lifecycle: deleted_at propagates deletions between devices (LWW via state_at)
+        snapshot.deletedAt = (d["deleted_at"] as? String).flatMap(parseISO)
+        return snapshot
     }
 
     private static func parseDate(_ d: [String: Any], meta: [String: Any]?) -> Date? {

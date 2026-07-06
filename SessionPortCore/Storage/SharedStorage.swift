@@ -44,18 +44,23 @@ final class SharedStorage {
         snapshots = list
     }
 
-    // Move to Trash (soft delete) — matches extension behaviour
+    // Move to Trash (soft delete) — matches extension behaviour:
+    // state_at = deletion timestamp, so the delete wins LWW over older state.
     func moveToTrash(id: String) {
         var list = snapshots
         guard let idx = list.firstIndex(where: { $0.id == id }) else { return }
-        list[idx].deletedAt = Date()
+        let now = Date()
+        list[idx].deletedAt = now
+        list[idx].stateAt = now
         snapshots = list
     }
 
+    // Restore — state_at = restore timestamp, wins LWW over the older deletion.
     func restoreFromTrash(id: String) {
         var list = snapshots
         guard let idx = list.firstIndex(where: { $0.id == id }) else { return }
         list[idx].deletedAt = nil
+        list[idx].stateAt = Date()
         snapshots = list
     }
 
@@ -120,6 +125,47 @@ final class SharedStorage {
 
     // Kept for compatibility — returns active only
     func deleteSnapshot(id: String) { moveToTrash(id: id) }
+
+    // MARK: - Cross-device sync merge
+    //
+    // Mirrors the extension's SessionPortDB.applySyncMerge (db.js): per-snapshot
+    // last-write-wins by syncStamp (state_at || deleted_at || created_at).
+    //  • absent locally → add (including its deleted state)
+    //  • present, remote stamp newer → adopt remote record (delete/restore
+    //    propagation; payload is immutable so content adoption is safe)
+    // Local-only concepts (attachedFiles, capturedOnDevice) are preserved when
+    // the remote copy has none — they never travel through the sync file.
+    @discardableResult
+    func applySyncMerge(_ remote: [Snapshot]) -> (added: Int, updated: Int) {
+        var list = snapshots
+        var byId = [String: Int](minimumCapacity: list.count)
+        for (i, s) in list.enumerated() { byId[s.id] = i }
+
+        var added = 0, updated = 0
+        for r in remote {
+            guard let idx = byId[r.id] else {
+                list.append(r)
+                byId[r.id] = list.count - 1
+                added += 1
+                continue
+            }
+            let local = list[idx]
+            guard r.syncStamp > local.syncStamp else { continue }
+            var adopted = r
+            if adopted.attachedFiles.isEmpty { adopted.attachedFiles = local.attachedFiles }
+            adopted.capturedOnDevice = local.capturedOnDevice
+            list[idx] = adopted
+            updated += 1
+        }
+
+        if added > 0 || updated > 0 {
+            // Same cap policy as addSnapshot: newest first, cap at kMaxSnapshots.
+            list.sort { $0.createdAt > $1.createdAt }
+            if list.count > kMaxSnapshots { list = Array(list.prefix(kMaxSnapshots)) }
+            snapshots = list
+        }
+        return (added, updated)
+    }
 
     // Attach file to existing snapshot
     func attachFile(_ file: AttachedFile, toSnapshot id: String) {
@@ -281,8 +327,14 @@ final class SharedStorage {
         set { defaults.set(newValue, forKey: "sp_is_pro") }
     }
 
-    var canAddSnapshot: Bool { isPro || activeSnapshots.count < kFreeLimit }
-    var freeSnapshotsRemaining: Int { max(0, kFreeLimit - activeSnapshots.count) }
+    // The free limit applies to snapshots CAPTURED on this device only.
+    // Synced/imported snapshots never count — a user arriving from the browser
+    // extension with 50 snapshots must not hit a paywall before capturing once.
+    private var deviceCapturedCount: Int {
+        activeSnapshots.filter { $0.capturedOnDevice }.count
+    }
+    var canAddSnapshot: Bool { isPro || deviceCapturedCount < kFreeLimit }
+    var freeSnapshotsRemaining: Int { max(0, kFreeLimit - deviceCapturedCount) }
 
     // MARK: - Drive state (email only, tokens in Keychain)
 

@@ -73,7 +73,9 @@ struct SnapshotsTab: View {
     @State private var showRename = false
     @State private var renameText = ""
 
-    private var freeRemaining: Int { max(0, 5 - snapshots.count) }
+    // Limit counts device-captured snapshots only (synced/imported are free) —
+    // must match SharedStorage.canAddSnapshot.
+    private var freeRemaining: Int { SharedStorage.shared.freeSnapshotsRemaining }
     private var projects: [String] { SharedStorage.shared.allProjects }
     private var trashCount: Int { SharedStorage.shared.trashedSnapshots.count }
 
@@ -203,7 +205,14 @@ struct SnapshotsTab: View {
                 if drive.isConnected { await drive.sync() }
                 snapshots = SharedStorage.shared.activeSnapshots
             }
-            .onAppear { snapshots = SharedStorage.shared.activeSnapshots }
+            .onAppear {
+                snapshots = SharedStorage.shared.activeSnapshots
+                // Extension parity: autosync on open, throttled to 1/min inside.
+                Task {
+                    await drive.autoSyncIfNeeded()
+                    snapshots = SharedStorage.shared.activeSnapshots
+                }
+            }
             .sheet(isPresented: $showTrash) { TrashView() }
             .sheet(isPresented: $showPaywall) { PaywallView(reason: "Нужно больше снэпшотов") }
             .sheet(isPresented: $showExport) { ExportView() }
@@ -824,7 +833,7 @@ struct SettingsTab: View {
                         .disabled(drive.isSyncing)
                         Button { Task { await drive.sync() } } label: {
                             HStack {
-                                Label(L.t("settings.restoreDrive"), systemImage: "icloud.and.arrow.down")
+                                Label(L.t("settings.restoreDrive"), systemImage: "arrow.triangle.2.circlepath.icloud")
                                 if drive.isSyncing { Spacer(); ProgressView().scaleEffect(0.8) }
                             }
                         }

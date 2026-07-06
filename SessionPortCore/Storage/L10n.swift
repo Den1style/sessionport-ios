@@ -151,7 +151,8 @@ enum L {
         "settings.connected":     ["en": "Connected", "ru": "Подключено"],
         "settings.lastSync":      ["en": "Last sync", "ru": "Последняя синхронизация"],
         "settings.backup":        ["en": "Create backup", "ru": "Создать резервную копию"],
-        "settings.restoreDrive":  ["en": "Restore from Drive", "ru": "Восстановить из Drive"],
+        // sync() is now two-way (pull → merge → push, extension parity)
+        "settings.restoreDrive":  ["en": "Sync with Drive", "ru": "Синхронизировать с Drive"],
         "settings.disconnect":    ["en": "Disconnect", "ru": "Отключить"],
         "settings.connectDrive":  ["en": "Connect Google Drive", "ru": "Подключить Google Drive"],
         "settings.drive.note":    ["en": "Reads SessionPort backups. Your files only.",

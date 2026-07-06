@@ -112,6 +112,16 @@ import Foundation
         #expect(snap?.title.count == 500)
     }
 
+    // stamp() contract from the extension: state_at || deleted_at || created_at
+    @Test func syncStampPrefersStateAt() {
+        var s = Snapshot(id: "x", title: "t", createdAt: Date(timeIntervalSince1970: 100))
+        #expect(s.syncStamp == Date(timeIntervalSince1970: 100))
+        s.deletedAt = Date(timeIntervalSince1970: 200)
+        #expect(s.syncStamp == Date(timeIntervalSince1970: 200))
+        s.stateAt = Date(timeIntervalSince1970: 300)
+        #expect(s.syncStamp == Date(timeIntervalSince1970: 300))
+    }
+
     @Test func contextTextHasMarkers() {
         let snap = Snapshot(id: "t1", parentId: nil, title: "T",
                             goal: "G", decisions: [], rejected: [],
@@ -293,6 +303,21 @@ import Foundation
         #expect(back?.contextText().contains("prod only") == true)
     }
 
+    // deleted_at/state_at must cross the interchange — deletions propagate
+    // between devices instead of resurrecting.
+    @Test func exportCarriesLifecycleFields() {
+        let del = Date(timeIntervalSince1970: 1_750_000_000)
+        var snap = Snapshot(id: "pr_life", title: "L",
+                            createdAt: Date(timeIntervalSince1970: 1_700_000_000))
+        snap.deletedAt = del
+        snap.stateAt = del
+        let back = Snapshot.fromBackupJSON(SnapshotInterchange.exportJSON([snap])).first
+        #expect(back?.isTrashed == true)
+        // second precision is enough for LWW ordering
+        #expect(back?.deletedAt.map { abs($0.timeIntervalSince(del)) < 1 } == true)
+        #expect(back?.stateAt.map { abs($0.timeIntervalSince(del)) < 1 } == true)
+    }
+
     @Test func exportUsesSchemaVersion1() {
         let data = SnapshotInterchange.exportJSON([])
         let obj = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
@@ -370,6 +395,83 @@ import Foundation
         storage.moveToTrash(id: snap.id)
         #expect(storage.activeSnapshots.contains { $0.id == snap.id } == false)
         #expect(storage.trashedSnapshots.contains { $0.id == snap.id })
+        // soft delete must bump the sync stamp (drives LWW propagation)
+        #expect(storage.trashedSnapshots.first { $0.id == snap.id }?.stateAt != nil)
         storage.permanentlyDelete(id: snap.id)
+    }
+
+    // ── Cross-device sync merge (extension applySyncMerge parity) ──
+
+    @Test func syncMergeAddsUnknownAndPropagatesDeletion() {
+        let storage = SharedStorage.shared
+        let idA = "pr_merge_a_" + UUID().uuidString
+        let idB = "pr_merge_b_" + UUID().uuidString
+        let t0 = Date(timeIntervalSinceNow: -3600)
+
+        let localA = Snapshot(id: idA, title: "A", createdAt: t0)
+        storage.addSnapshot(localA)
+
+        // Remote: same snapshot deleted later (stamp t1 > t0) + unknown B
+        var remoteA = localA
+        let t1 = Date(timeIntervalSinceNow: -60)
+        remoteA.deletedAt = t1
+        remoteA.stateAt = t1
+        let remoteB = Snapshot(id: idB, title: "B", createdAt: Date())
+
+        let res = storage.applySyncMerge([remoteA, remoteB])
+        #expect(res.added == 1)
+        #expect(res.updated == 1)
+        #expect(storage.snapshots.first { $0.id == idA }?.isTrashed == true)
+        #expect(storage.snapshots.contains { $0.id == idB })
+
+        storage.permanentlyDelete(id: idA)
+        storage.permanentlyDelete(id: idB)
+    }
+
+    @Test func syncMergeDoesNotResurrectNewerLocalDeletion() {
+        let storage = SharedStorage.shared
+        let id = "pr_merge_res_" + UUID().uuidString
+        let t0 = Date(timeIntervalSinceNow: -3600)
+        storage.addSnapshot(Snapshot(id: id, title: "R", createdAt: t0))
+        storage.moveToTrash(id: id)   // stateAt = now → newer than remote's t0
+
+        let remoteActive = Snapshot(id: id, title: "R", createdAt: t0)
+        let res = storage.applySyncMerge([remoteActive])
+        #expect(res.updated == 0)
+        #expect(storage.snapshots.first { $0.id == id }?.isTrashed == true)
+
+        storage.permanentlyDelete(id: id)
+    }
+
+    @Test func syncMergeRemoteRestoreWins() {
+        let storage = SharedStorage.shared
+        let id = "pr_merge_restore_" + UUID().uuidString
+        let t0 = Date(timeIntervalSinceNow: -3600)
+
+        // Local: deleted an hour ago
+        var localDeleted = Snapshot(id: id, title: "R", createdAt: t0)
+        localDeleted.deletedAt = t0
+        localDeleted.stateAt = t0
+        storage.addSnapshot(localDeleted)
+
+        // Remote: restored just now (stamp newer) → restore propagates
+        var remoteRestored = Snapshot(id: id, title: "R", createdAt: t0)
+        remoteRestored.stateAt = Date(timeIntervalSinceNow: -30)
+        let res = storage.applySyncMerge([remoteRestored])
+        #expect(res.updated == 1)
+        #expect(storage.snapshots.first { $0.id == id }?.isTrashed == false)
+
+        storage.permanentlyDelete(id: id)
+    }
+
+    // Synced/imported snapshots (capturedOnDevice == false) must not consume
+    // the free limit — only device-captured ones count.
+    @Test func syncedSnapshotsDontCountTowardFreeLimit() {
+        let storage = SharedStorage.shared
+        let before = storage.freeSnapshotsRemaining
+        let id = "pr_synced_" + UUID().uuidString
+        storage.addSnapshot(Snapshot(id: id, title: "S"))   // not captured on device
+        #expect(storage.freeSnapshotsRemaining == before)
+        storage.permanentlyDelete(id: id)
     }
 }

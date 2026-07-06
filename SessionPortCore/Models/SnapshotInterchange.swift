@@ -102,6 +102,10 @@ enum SnapshotInterchange {
                 "size_bytes": payloadData.count,
             ]
             if let parent = snap.parentId { record["parent_transfer_id"] = parent }
+            // Lifecycle fields — deletions/restores propagate between devices
+            // via state_at last-write-wins (extension's applySyncMerge contract).
+            if let del = snap.deletedAt { record["deleted_at"] = iso.string(from: del) }
+            if let st  = snap.stateAt   { record["state_at"]   = iso.string(from: st) }
             return record
         }
 

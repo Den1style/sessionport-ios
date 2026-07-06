@@ -10,6 +10,7 @@ struct TransferView: View {
     // Set when the Load step finds no valid JSON in the clipboard, so we show a
     // hint instead of fabricating and inserting an empty template.
     @State private var loadFailed = false
+    @State private var limitReached = false
     // Distinguishes "clipboard empty" (likely Full Access off) from "not JSON"
     @State private var clipWasEmpty = false
     // Shows the "snapshot saved" confirmation on the mode-selection screen
@@ -156,7 +157,14 @@ struct TransferView: View {
                 if step < hints.count {
                     let isLast = step == mode.steps.count - 1
                     Group {
-                        if isLast && loadFailed {
+                        if isLast && limitReached {
+                            // Free limit hit: NEVER fail silently — explain and
+                            // point to the app (paywall lives there).
+                            Text(isEn
+                                 ? "⚠️ Free limit: 5 snapshots. Open SessionPort → Upgrade to Pro for unlimited."
+                                 : "⚠️ Лимит: 5 снэпшотов бесплатно. Открой SessionPort → Pro для безлимита.")
+                                .foregroundStyle(Color.orange)
+                        } else if isLast && loadFailed {
                             Text(clipWasEmpty
                                  ? (isEn
                                     ? "⚠️ Clipboard is empty. Copy the LLM reply and check the keyboard's Full Access."
@@ -300,7 +308,13 @@ struct TransferView: View {
     // context. If the clipboard has no valid snapshot, we do NOTHING but flag the
     // failure — we must never fabricate and insert an empty template.
     private func loadFromClipboardAndInsert(storage: SharedStorage) {
-        guard storage.canAddSnapshot else { return }
+        // Free limit: show WHY the tap does nothing (silent failure reads as
+        // "the app is broken" and kills retention, not conversion).
+        guard storage.canAddSnapshot else {
+            limitReached = true
+            return
+        }
+        limitReached = false
         let src = llmName.isEmpty ? "unknown" : llmName.lowercased()
         let clipText = UIPasteboard.general.string ?? ""
 
@@ -323,7 +337,8 @@ struct TransferView: View {
 
         loadFailed = false
         clipWasEmpty = false
-        let snap = applyProject(to: valid)
+        var snap = applyProject(to: valid)
+        snap.capturedOnDevice = true   // counts toward the free limit; synced ones don't
         storage.addSnapshot(snap)
         storage.kbForkParentId = nil   // fork consumed
         // Save-only: the snapshot goes into the app, NOT into the chat input.

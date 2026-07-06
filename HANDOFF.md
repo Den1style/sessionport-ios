@@ -7,16 +7,60 @@
 > Код написан и вычитан, но **НЕ собирался** — на Windows нет Swift-компилятора.
 > Этот файл — чеклист для Mac.
 
-## 0. ⚠️ НОВОЕ: rawPayload — нужен повторный прогон тестов
+## 0. ⚠️ НОВОЕ: rawPayload + 4 фикса аудита UX — нужен прогон тестов
 
-Прогон из п.1 покрывает пункт 3, но сделан ДО коммита `90331a4` (rawPayload).
-Добавились 2 теста (`rawPayloadIsVerbatimAndUsedForTransfer`,
-`rawPayloadSurvivesExportImportCycle`) и правки в Snapshot.swift /
-SnapshotInterchange.swift. Повторить:
+Прогон из п.1 покрывает только пункт 3. После него добавлены:
+
+**a) rawPayload (коммит `90331a4`)** — сырой JSON модели хранится дословно.
+
+**b) 4 фикса критических расхождений с расширением (аудит UX/retention):**
+
+1. **Молчаливый отказ в клавиатуре** — при лимите 5 снапшотов тап по Save
+   делал НИЧЕГО. Теперь оранжевое сообщение «Лимит: 5 снэпшотов бесплатно…»
+   (`TransferView`: state `limitReached`).
+2. **deleted_at / state_at в схеме и interchange** — `Snapshot.stateAt`
+   («state_at»), `moveToTrash`/`restoreFromTrash` бампают штамп как в db.js
+   (delete → state_at = deleted_at; restore → state_at = now). Экспорт пишет
+   оба поля в запись, импорт читает. Удаления теперь пересекают платформы.
+3. **Настоящий двусторонний синк** — `GoogleDriveService.sync()` переписан
+   с «восстановить последний бэкап» на канонический протокол расширения
+   (google-drive.js gdrive_syncNow): pull `sessionport-sync.json` из папки
+   «SessionPort Backups» → `SharedStorage.applySyncMerge` (LWW по syncStamp =
+   state_at ?? deleted_at ?? created_at, зеркало applySyncMerge из db.js) →
+   push полного экспорта в тот же файл (PATCH / multipart create).
+   Если канонического файла нет — сид из последнего классического бэкапа.
+   Плюс `autoSyncIfNeeded()` (тротлинг 60 сек) на onAppear Истории —
+   паритет с автосинком попапа. Кнопка настроек теперь «Синхронизировать
+   с Drive».
+4. **Лимит не наказывает синк** — `Snapshot.capturedOnDevice`
+   («captured_on_device», не экспортируется): true только у снапшотов,
+   сохранённых клавиатурой на этом устройстве. `canAddSnapshot` /
+   `freeSnapshotsRemaining` считают только их — 50 снапшотов из Chrome
+   больше не съедают бесплатные слоты.
+
+**Новые тесты (+8):** `rawPayloadIsVerbatimAndUsedForTransfer`,
+`rawPayloadSurvivesExportImportCycle`, `syncStampPrefersStateAt`,
+`exportCarriesLifecycleFields`, `syncMergeAddsUnknownAndPropagatesDeletion`,
+`syncMergeDoesNotResurrectNewerLocalDeletion`, `syncMergeRemoteRestoreWins`,
+`syncedSnapshotsDontCountTowardFreeLimit`.
 
 ```bash
 xcodebuild test -scheme SessionPort -destination 'platform=iOS Simulator,name=iPhone 17 Pro'
 ```
+
+**Ручная проверка синка (нужны оба устройства/браузер):**
+1. Chrome: создать снапшот → открыть попап (автосинк) → iOS: pull-to-refresh
+   в Истории → снапшот появился.
+2. iOS: удалить снапшот → «Синхронизировать с Drive» → Chrome: открыть попап →
+   снапшот в корзине (НЕ воскрес).
+3. Chrome: восстановить из корзины → iOS: синк → снапшот снова активен.
+4. Free-аккаунт с 50 синкованными снапшотами: клавиатура ДОЛЖНА позволять
+   сохранять новые (5 своих), баннер лимита показывает остаток от своих.
+5. Клавиатура при исчерпанном лимите: тап Save → оранжевое сообщение
+   (не молчание).
+
+**Остаётся (не начато):** кросс-экспорт файлов-вложений; локали 6 языков
+(de/fr/es/zh/ja/ko/pt) для iOS; пункт 4 плана (единый JSON промптов).
 
 ## 1. Собрать и прогнать тесты (пункт 3) — ✅ СДЕЛАНО (Mac, 2026-07-05)
 
