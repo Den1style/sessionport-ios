@@ -7,9 +7,20 @@
 > Код написан и вычитан, но **НЕ собирался** — на Windows нет Swift-компилятора.
 > Этот файл — чеклист для Mac.
 
-## 0. ⚠️ НОВОЕ: rawPayload + 4 фикса аудита UX — нужен прогон тестов
+## 0. rawPayload + 4 фикса аудита UX — ✅ ПРОВЕРЕНО (Mac, 2026-07-12)
 
-Прогон из п.1 покрывает только пункт 3. После него добавлены:
+Перепрогон на симуляторе **iPhone 17 Pro** после коммитов `90331a4` (rawPayload)
+и `b4a70ce` (4 фикса аудита): **`** TEST SUCCEEDED **`, 31/31 тест зелёный
+в 5 сьютах.** Ошибок компиляции нет — весь код собирается чисто. Восемь новых
+тестов подтверждены поимённо: `rawPayloadIsVerbatimAndUsedForTransfer`,
+`rawPayloadSurvivesExportImportCycle`, `syncStampPrefersStateAt`,
+`exportCarriesLifecycleFields`, `syncMergeAddsUnknownAndPropagatesDeletion`,
+`syncMergeDoesNotResurrectNewerLocalDeletion`, `syncMergeRemoteRestoreWins`,
+`syncedSnapshotsDontCountTowardFreeLimit`.
+
+Ручная проверка синка (ниже) и остальное — остаются.
+
+### Что было добавлено (для истории)
 
 **a) rawPayload (коммит `90331a4`)** — сырой JSON модели хранится дословно.
 
