@@ -1,6 +1,6 @@
 name: SessionPort
 options:
-  bundleIdPrefix: com.sessionport
+  bundleIdPrefix: com.lusine   # each target also sets PRODUCT_BUNDLE_IDENTIFIER explicitly (com.lusine.sessionport*)
   deploymentTarget:
     iOS: "17.0"
   xcodeVersion: "16"
@@ -20,7 +20,6 @@ targets:
   SessionPort:
     type: application
     platform: iOS
-    bundleIdSuffix: app
     sources:
       - path: SessionPortApp
       - path: SessionPortCore
@@ -30,6 +29,7 @@ targets:
         DEVELOPMENT_TEAM: ""          # fill in your Team ID
         CODE_SIGN_STYLE: Automatic
         INFOPLIST_FILE: SessionPortApp/App/Info.plist
+        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
     entitlements:
       path: SessionPortApp/SessionPort.entitlements
       properties:

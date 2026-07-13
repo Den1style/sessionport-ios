@@ -3,7 +3,7 @@
 	archiveVersion = 1;
 	classes = {
 	};
-	objectVersion = 56;
+	objectVersion = 77;
 	objects = {
 
 /* Begin PBXBuildFile section */
@@ -27,6 +27,7 @@
 		4C9B204C417B3701D3978078 /* PromptInterchange.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18369AFCBE30CDB3B0B583AF /* PromptInterchange.swift */; };
 		4F610EEA2670A8B57BE33EFD /* SnapshotInterchange.swift in Sources */ = {isa = PBXBuildFile; fileRef = 17CA0D5ABEF10E5ACE554CDE /* SnapshotInterchange.swift */; };
 		515B2A03C30EBD0E83F39BF5 /* PromptInterchange.swift in Sources */ = {isa = PBXBuildFile; fileRef = 18369AFCBE30CDB3B0B583AF /* PromptInterchange.swift */; };
+		5A810773AA392CEE708CAADC /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 18752DE0040E3CD7BD0C6395 /* Assets.xcassets */; };
 		5B04BB9134BC38B3E3701511 /* URL+MimeType.swift in Sources */ = {isa = PBXBuildFile; fileRef = 3BC0CEC8FB39DFAFE4D91F8B /* URL+MimeType.swift */; };
 		5BB4F1377A899AEE17DAD88F /* TransferView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D503A2EE4774B0E03E822BD /* TransferView.swift */; };
 		6605381666AA2FA1168BECF9 /* SessionLogger.swift in Sources */ = {isa = PBXBuildFile; fileRef = 88DE615312D85C715D19586E /* SessionLogger.swift */; };
@@ -84,9 +85,10 @@
 		04C4087E83F4CD5B1933C106 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		0A75525D04578C700B6C1A5D /* OnboardingView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OnboardingView.swift; sourceTree = "<group>"; };
 		0CE9F0CE277C7EBBAD535566 /* L10n.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = L10n.swift; sourceTree = "<group>"; };
-		0E31B226211401D735AE149E /* SessionPortKeyboard.appex */ = {isa = PBXFileReference; explicitFileType = "wrapper.app-extension"; includeInIndex = 0; path = SessionPortKeyboard.appex; sourceTree = BUILT_PRODUCTS_DIR; };
+		0E31B226211401D735AE149E /* SessionPortKeyboard.appex */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = "wrapper.app-extension"; path = SessionPortKeyboard.appex; sourceTree = BUILT_PRODUCTS_DIR; };
 		17CA0D5ABEF10E5ACE554CDE /* SnapshotInterchange.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotInterchange.swift; sourceTree = "<group>"; };
 		18369AFCBE30CDB3B0B583AF /* PromptInterchange.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptInterchange.swift; sourceTree = "<group>"; };
+		18752DE0040E3CD7BD0C6395 /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		1B9A9EC140824AC84F2A8205 /* AuthenticationServices.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AuthenticationServices.framework; path = System/Library/Frameworks/AuthenticationServices.framework; sourceTree = SDKROOT; };
 		1C4A026C46D254339D5BAF38 /* PromptItem.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptItem.swift; sourceTree = "<group>"; };
 		2507029BA793ECADBCFE12D9 /* GoogleDriveService.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = GoogleDriveService.swift; sourceTree = "<group>"; };
@@ -96,14 +98,14 @@
 		3C300908657DAC9EB5379F65 /* PromptsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PromptsView.swift; sourceTree = "<group>"; };
 		3C336103FF9FF08E12044ADD /* TrashView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TrashView.swift; sourceTree = "<group>"; };
 		49CA822712DBA5679B912CCF /* SessionPortTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionPortTests.swift; sourceTree = "<group>"; };
-		4D6A5EA05AC2BDE2B0A7DC03 /* SessionPortTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = SessionPortTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		4D6A5EA05AC2BDE2B0A7DC03 /* SessionPortTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = SessionPortTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		4EF59B533BCBFEE0F4733606 /* SnapshotDetailView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SnapshotDetailView.swift; sourceTree = "<group>"; };
 		4F33D59170A4BDC5521537BD /* SessionPort.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = SessionPort.entitlements; sourceTree = "<group>"; };
 		58765A1A9F8A3008941B0BF9 /* MindMapView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MindMapView.swift; sourceTree = "<group>"; };
-		620996CC4874BCB7C8F331B0 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
+		620996CC4874BCB7C8F331B0 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		6286E8158D7EC6C0C25E25FE /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		632876FD07C2F617D2840830 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
-		7007125B46B1D6C10C3A89AC /* SessionPort.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = SessionPort.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		7007125B46B1D6C10C3A89AC /* SessionPort.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = SessionPort.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		80822ED7536049632A84623F /* AppSettings.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppSettings.swift; sourceTree = "<group>"; };
 		88DE615312D85C715D19586E /* SessionLogger.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SessionLogger.swift; sourceTree = "<group>"; };
 		A7849D74D06804C53D868633 /* KeyboardPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardPanelView.swift; sourceTree = "<group>"; };
@@ -137,13 +139,6 @@
 				C096D9F52DE49C1736CE6C50 /* StoreKitService.swift */,
 			);
 			path = Services;
-			sourceTree = "<group>";
-		};
-		2552E56B9103D55AF691A5E0 /* Settings */ = {
-			isa = PBXGroup;
-			children = (
-			);
-			path = Settings;
 			sourceTree = "<group>";
 		};
 		319DA013813081E269DB216A = {
@@ -208,6 +203,7 @@
 		866F6F282492BEE5B368A95D /* SessionPortApp */ = {
 			isa = PBXGroup;
 			children = (
+				18752DE0040E3CD7BD0C6395 /* Assets.xcassets */,
 				620996CC4874BCB7C8F331B0 /* PrivacyInfo.xcprivacy */,
 				4F33D59170A4BDC5521537BD /* SessionPort.entitlements */,
 				AF51DBB5C76D67AC4DC15D68 /* App */,
@@ -304,7 +300,6 @@
 			children = (
 				599B3841F3306BE1039914B9 /* MindMap */,
 				B250374362CDBBFBA7E5B45A /* Onboarding */,
-				2552E56B9103D55AF691A5E0 /* Settings */,
 				6FB0D426FAB53BC67076AC83 /* Snapshots */,
 				6E38CF7085B84E5345338A3F /* Trash */,
 			);
@@ -337,6 +332,8 @@
 			dependencies = (
 			);
 			name = SessionPortKeyboard;
+			packageProductDependencies = (
+			);
 			productName = SessionPortKeyboard;
 			productReference = 0E31B226211401D735AE149E /* SessionPortKeyboard.appex */;
 			productType = "com.apple.product-type.app-extension";
@@ -356,6 +353,8 @@
 				2FB931745A3F3388CD138B74 /* PBXTargetDependency */,
 			);
 			name = SessionPort;
+			packageProductDependencies = (
+			);
 			productName = SessionPort;
 			productReference = 7007125B46B1D6C10C3A89AC /* SessionPort.app */;
 			productType = "com.apple.product-type.application";
@@ -372,6 +371,8 @@
 				572B43CA542E808EBEE10A73 /* PBXTargetDependency */,
 			);
 			name = SessionPortTests;
+			packageProductDependencies = (
+			);
 			productName = SessionPortTests;
 			productReference = 4D6A5EA05AC2BDE2B0A7DC03 /* SessionPortTests.xctest */;
 			productType = "com.apple.product-type.bundle.unit-test";
@@ -383,18 +384,19 @@
 			isa = PBXProject;
 			attributes = {
 				BuildIndependentTargetsInParallel = YES;
-				LastUpgradeCheck = 2650;
+				LastUpgradeCheck = 1600;
 				TargetAttributes = {
 					223B41F2031117A391D74804 = {
+						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
 					};
 					30D8B1CD399ED02F270C28C8 = {
+						DevelopmentTeam = "";
 						ProvisioningStyle = Automatic;
 					};
 				};
 			};
 			buildConfigurationList = BE435A8EF502E93DF477707C /* Build configuration list for PBXProject "SessionPort" */;
-			compatibilityVersion = "Xcode 14.0";
 			developmentRegion = en;
 			hasScannedForEncodings = 0;
 			knownRegions = (
@@ -402,6 +404,9 @@
 				en,
 			);
 			mainGroup = 319DA013813081E269DB216A;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = A4BE5DE0D2454BB8C320657E /* Products */;
 			projectDirPath = "";
 			projectRoot = "";
 			targets = (
@@ -417,6 +422,7 @@
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				5A810773AA392CEE708CAADC /* Assets.xcassets in Resources */,
 				9C3F558242E2F2674240E5B9 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
@@ -503,7 +509,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = SessionPortKeyboard/SessionPortKeyboard.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = AAKSMLXNGY;
+				DEVELOPMENT_TEAM = "";
 				INFOPLIST_FILE = SessionPortKeyboard/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -523,7 +529,7 @@
 				CODE_SIGN_ENTITLEMENTS = SessionPortApp/SessionPort.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = AAKSMLXNGY;
+				DEVELOPMENT_TEAM = "";
 				INFOPLIST_FILE = SessionPortApp/App/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -606,7 +612,6 @@
 				DEBUG_INFORMATION_FORMAT = dwarf;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -627,7 +632,6 @@
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 				SWIFT_STRICT_CONCURRENCY = complete;
@@ -642,7 +646,7 @@
 			buildSettings = {
 				CODE_SIGN_ENTITLEMENTS = SessionPortKeyboard/SessionPortKeyboard.entitlements;
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = AAKSMLXNGY;
+				DEVELOPMENT_TEAM = "";
 				INFOPLIST_FILE = SessionPortKeyboard/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -692,7 +696,6 @@
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
-				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
@@ -706,7 +709,6 @@
 				MTL_FAST_MATH = YES;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = iphoneos;
-				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				SWIFT_STRICT_CONCURRENCY = complete;
@@ -723,7 +725,7 @@
 				CODE_SIGN_ENTITLEMENTS = SessionPortApp/SessionPort.entitlements;
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				CODE_SIGN_STYLE = Automatic;
-				DEVELOPMENT_TEAM = AAKSMLXNGY;
+				DEVELOPMENT_TEAM = "";
 				INFOPLIST_FILE = SessionPortApp/App/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
